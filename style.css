@@ -197,3 +197,14 @@ body {
 .load-action-group { display: flex; gap: 8px; margin-top: 10px; }
 .load-action-group .apple-input { flex: 1; padding: 10px; font-size: 0.9rem; text-transform: uppercase; text-align: center; letter-spacing: 2px; }
 .modal-divider { border: 0; height: 1px; background: var(--border-subtle); margin: 1.5rem 0; }
+
+/* TIER BADGE STYLES */
+.metric-score { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 8px; }
+.tier-badge { padding: 4px 10px; border-radius: 8px; font-weight: 700; font-size: 0.75rem; letter-spacing: 0.5px; text-transform: uppercase; }
+
+.grade-s { background: linear-gradient(135deg, #BF5AF2, #5E5CE6); color: white; box-shadow: 0 0 12px rgba(191, 90, 242, 0.4); }
+.grade-a { background: linear-gradient(135deg, #32D74B, #28a745); color: black; box-shadow: 0 0 12px rgba(50, 215, 75, 0.4); }
+.grade-b { background: linear-gradient(135deg, #0A84FF, #0056b3); color: white; }
+.grade-c { background: linear-gradient(135deg, #FF9F0A, #d39e00); color: black; }
+.grade-d { background: #48484A; color: #D1D1D6; }
+.grade-none { background: rgba(255,255,255,0.05); color: var(--text-muted); }
