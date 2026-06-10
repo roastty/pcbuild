@@ -1,6 +1,6 @@
 /**
  * Mac Architect PC Simulator Engine
- * Features: Cloud Sync, Overclocking, Advanced Filtering & Sorting
+ * Features: Cloud Sync, Overclocking, Advanced Filtering & Sorting, Smart Search
  */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
@@ -37,8 +37,8 @@ const state = {
     requiredSocket: null, 
     requiredRamType: null,
     ramQuantity: 2, 
-    isOverclocked: false,   // NEW STATE
-    filters: {},            // NEW STATE (per category brand/sort)
+    isOverclocked: false,
+    filters: {},
     loadout: { 
         cpu: null, cooler: null, mobo: null, ram: null, gpu: null, 
         ssd: [], hdd: [], case_fan: [], psu: null 
@@ -54,7 +54,6 @@ async function init() {
         if (!response.ok) throw new Error("Failed to load JSON");
         db = await response.json();
         
-        // Initialize Default Filters
         db.categories.forEach(cat => {
             state.filters[cat.id] = { brand: 'All', sort: 'default' };
         });
@@ -254,13 +253,13 @@ function toggleOverclock() {
     if (state.isOverclocked) {
         btn.classList.add('active');
         btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Overclock: ON`;
-        indicator.style.display = 'block';
+        if(indicator) indicator.style.display = 'block';
     } else {
         btn.classList.remove('active');
         btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Overclock: OFF`;
-        indicator.style.display = 'none';
+        if(indicator) indicator.style.display = 'none';
     }
-    updateMetrics(); // Recalculate watts/thermals/scores!
+    updateMetrics();
 }
 
 function checkCompatibility(catId, item) {
@@ -272,6 +271,7 @@ function checkCompatibility(catId, item) {
 
 function updateCompatibilityAlert() {
     const alertBox = document.getElementById('compatibility-alert');
+    if (!alertBox) return;
     let msgs = [];
     if (!state.platform) msgs.push("Awaiting Platform Selection (Intel/AMD).");
     else {
@@ -289,15 +289,53 @@ window.setFilter = function(catId, type, value) {
     renderInventory();
 }
 
+// --- NEW SMART SEARCH ENGINE ---
+function smartSearchMatch(item, query) {
+    if (!query.trim()) return true;
+    
+    const searchableText = `${item.name} ${item.brand || ''} ${item.socket || ''} ${item.type || ''}`.toLowerCase();
+    
+    let cleanQuery = query.toLowerCase()
+        .replace(/\b(gen|generation)\b/g, ' ')
+        .replace(/(\d+)(th|nd|rd|st)\b/g, '$1');
+        
+    const terms = cleanQuery.split(/\s+/).filter(t => t.length > 0);
+    
+    return terms.every(term => searchableText.includes(term));
+}
+
 function renderInventory() {
     updateCompatibilityAlert();
     const container = document.getElementById('component-accordion');
+    if (!container) return;
     const openTabs = Array.from(document.querySelectorAll('.category-block.active')).map(b => b.dataset.cat);
     container.innerHTML = '';
 
     db.categories.forEach(cat => {
+        let validItems = (db.items[cat.id] || []).filter(item => 
+            smartSearchMatch(item, state.searchQuery) && checkCompatibility(cat.id, item)
+        );
+
+        const currentFilter = state.filters[cat.id];
+        const brands = ['All', ...new Set(validItems.map(i => i.brand || i.name.split(' ')[0]))];
+
+        if (currentFilter.brand !== 'All') {
+            validItems = validItems.filter(i => (i.brand || i.name.split(' ')[0]) === currentFilter.brand);
+        }
+
+        if (currentFilter.sort === 'price_asc') {
+            validItems.sort((a, b) => a.priceUsd - b.priceUsd);
+        } else if (currentFilter.sort === 'price_desc') {
+            validItems.sort((a, b) => b.priceUsd - a.priceUsd);
+        }
+
+        let isOpen = openTabs.includes(cat.id);
+        if (state.searchQuery.trim() !== '') {
+            isOpen = validItems.length > 0; 
+        }
+
         const block = document.createElement('div');
-        block.className = `category-block ${openTabs.includes(cat.id) ? 'active' : ''}`;
+        block.className = `category-block ${isOpen ? 'active' : ''}`;
         block.dataset.cat = cat.id;
         
         let statusText = "";
@@ -308,7 +346,7 @@ function renderInventory() {
         btn.className = 'category-btn';
         let statusBadge = statusText ? `<span class="category-status">${statusText}</span>` : '';
         btn.innerHTML = `<span>${cat.name} ${statusBadge}</span> 
-                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transform: rotate(${openTabs.includes(cat.id) ? '180deg' : '0deg'}); transition: 0.2s;"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transform: rotate(${isOpen ? '180deg' : '0deg'}); transition: 0.2s;"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
         btn.onclick = () => {
             if (!block.classList.contains('active')) {
                 block.classList.add('active'); btn.querySelector('svg').style.transform = 'rotate(180deg)';
@@ -320,19 +358,9 @@ function renderInventory() {
         const listInner = document.createElement('div');
         listInner.className = 'item-list-inner';
 
-        // 1. Initial Compatibility & Search Filter
-        let validItems = (db.items[cat.id] || []).filter(item => 
-            (item.name.toLowerCase().includes(state.searchQuery) || (item.socket && item.socket.toLowerCase().includes(state.searchQuery))) && checkCompatibility(cat.id, item)
-        );
-
         if (validItems.length === 0) {
             listInner.innerHTML = `<div class="item-card"><p style="color:var(--text-muted);">No compatible hardware found.</p></div>`;
         } else {
-            // Extract Unique Brands for Filter UI
-            const brands = ['All', ...new Set(validItems.map(i => i.brand || i.name.split(' ')[0]))];
-            const currentFilter = state.filters[cat.id];
-
-            // Build Filter UI
             let filterHtml = `
                 <div class="filter-bar">
                     <div class="brand-chips">
@@ -346,21 +374,8 @@ function renderInventory() {
                 </div>
             `;
 
-            // Apply Brand Filter
-            if (currentFilter.brand !== 'All') {
-                validItems = validItems.filter(i => (i.brand || i.name.split(' ')[0]) === currentFilter.brand);
-            }
-
-            // Apply Sorting
-            if (currentFilter.sort === 'price_asc') {
-                validItems.sort((a, b) => a.priceUsd - b.priceUsd);
-            } else if (currentFilter.sort === 'price_desc') {
-                validItems.sort((a, b) => b.priceUsd - a.priceUsd);
-            }
-
             listInner.innerHTML = filterHtml;
 
-            // Render Items
             validItems.forEach(item => {
                 const isMulti = MULTI_SLOT_CATEGORIES.includes(cat.id);
                 const count = isMulti ? state.loadout[cat.id].filter(i => i.id === item.id).length : 0;
@@ -374,10 +389,12 @@ function renderInventory() {
                 if(item.perf) tags += `<span class="tag">Score: ${item.perf}</span>`;
 
                 const btnText = isMulti ? (count > 0 ? `Add (+${count})` : 'Add') : (isEquipped ? 'Equipped' : 'Equip');
+                const imageFallback = `https://placehold.co/200x200/1c1c1e/86868b?text=Image`;
 
                 const card = document.createElement('div');
                 card.className = 'item-card';
                 card.innerHTML = `
+                    <img class="item-img" src="${item.imageUrl || imageFallback}" alt="${item.name}" loading="lazy" onerror="this.src='${imageFallback}'">
                     <div class="item-info">
                         <h4>${item.name}</h4>
                         <div class="tags">${tags}</div>
@@ -402,6 +419,7 @@ function renderInventory() {
 
 function renderBlueprint() {
     const container = document.getElementById('loadout-slots');
+    if (!container) return;
     container.innerHTML = '';
 
     db.categories.forEach(cat => {
@@ -419,9 +437,13 @@ function renderBlueprint() {
                 innerHtml = `<div class="slot-empty">Awaiting hardware...</div>`;
             } else {
                 arr.forEach(item => {
+                    const imageFallback = `https://placehold.co/200x200/1c1c1e/86868b?text=Image`;
                     innerHtml += `
-                        <div class="slot-item-row" style="margin-bottom: 4px;">
-                            <span class="slot-item-name">• ${item.name}</span>
+                        <div class="slot-item-row">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <img src="${item.imageUrl || imageFallback}" style="width: 36px; height: 36px; border-radius: 6px; object-fit: contain; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.05); flex-shrink: 0;" onerror="this.src='${imageFallback}'">
+                                <span class="slot-item-name">${item.name}</span>
+                            </div>
                             <button class="btn-remove" onclick="window.removeMultiItem('${cat.id}', '${item.instanceId}')">Remove</button>
                         </div>
                     `;
@@ -442,9 +464,14 @@ function renderBlueprint() {
                         </div>
                     `;
                 }
+                
+                const imageFallback = `https://placehold.co/200x200/1c1c1e/86868b?text=Image`;
                 innerHtml = `
                     <div class="slot-item-row">
-                        <span class="slot-item-name">${item.name} ${modifier}</span>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <img src="${item.imageUrl || imageFallback}" style="width: 36px; height: 36px; border-radius: 6px; object-fit: contain; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.05); flex-shrink: 0;" onerror="this.src='${imageFallback}'">
+                            <span class="slot-item-name">${item.name} ${modifier}</span>
+                        </div>
                         <button class="btn-remove" onclick="window.removeSingleItem('${cat.id}')">Remove</button>
                     </div>
                 `;
@@ -519,7 +546,7 @@ function formatPrice(usdPrice) {
 
 function updateDot(id, statusClass) {
     const el = document.getElementById(id);
-    el.className = `status-dot ${statusClass}`;
+    if(el) el.className = `status-dot ${statusClass}`;
 }
 
 function updateMetrics() {
@@ -546,7 +573,6 @@ function updateMetrics() {
                 totalUsd += (item.priceUsd * multiplier);
                 
                 if (key !== 'psu' && item.watt) {
-                    // Apply OC Wattage bump only to CPU and GPU
                     if (key === 'cpu' || key === 'gpu') {
                         sysWattage += Math.round(item.watt * ocWattMult);
                     } else {
@@ -568,64 +594,75 @@ function updateMetrics() {
 
     const bStatus = document.getElementById('bottleneck-status');
     const bReadout = document.getElementById('bottleneck-readout');
-    if (cpu && gpu) {
-        const cpuP = cpu.perf * ocPerfMult; 
-        const gpuP = gpu.perf * ocPerfMult;
+    if (bStatus && bReadout) {
+        if (cpu && gpu) {
+            const cpuP = cpu.perf * ocPerfMult; 
+            const gpuP = gpu.perf * ocPerfMult;
 
-        if (gpuP > cpuP * 1.3) {
-            bReadout.innerText = "Severe CPU Limit"; bStatus.innerText = "GPU Starved"; updateDot('bottleneck-dot', 'danger');
-        } else if (gpuP > cpuP * 1.15) {
-            bReadout.innerText = "CPU Limit"; bStatus.innerText = "GPU Waiting"; updateDot('bottleneck-dot', 'warn');
-        } else if (cpuP > gpuP * 1.3) {
-            bReadout.innerText = "GPU Limit"; bStatus.innerText = "CPU Overkill"; updateDot('bottleneck-dot', 'warn');
+            if (gpuP > cpuP * 1.3) {
+                bReadout.innerText = "Severe CPU Limit"; bStatus.innerText = "GPU Starved"; updateDot('bottleneck-dot', 'danger');
+            } else if (gpuP > cpuP * 1.15) {
+                bReadout.innerText = "CPU Limit"; bStatus.innerText = "GPU Waiting"; updateDot('bottleneck-dot', 'warn');
+            } else if (cpuP > gpuP * 1.3) {
+                bReadout.innerText = "GPU Limit"; bStatus.innerText = "CPU Overkill"; updateDot('bottleneck-dot', 'warn');
+            } else {
+                bReadout.innerText = "Optimal"; bStatus.innerText = "Balanced"; updateDot('bottleneck-dot', 'ok');
+            }
         } else {
-            bReadout.innerText = "Optimal"; bStatus.innerText = "Balanced"; updateDot('bottleneck-dot', 'ok');
+            bReadout.innerText = "N/A"; bStatus.innerText = "Incomplete"; updateDot('bottleneck-dot', '');
         }
-    } else {
-        bReadout.innerText = "N/A"; bStatus.innerText = "Incomplete"; updateDot('bottleneck-dot', '');
     }
 
     const tStatus = document.getElementById('thermal-status');
     const tReadout = document.getElementById('thermal-readout');
-    if (cpu && cooler) {
-        let currentCpuWatt = Math.round(cpu.watt * ocWattMult);
-        const headroom = cooler.tdp_max - currentCpuWatt;
+    if(tStatus && tReadout) {
+        if (cpu && cooler) {
+            let currentCpuWatt = Math.round(cpu.watt * ocWattMult);
+            const headroom = cooler.tdp_max - currentCpuWatt;
 
-        if (headroom < -10) {
-            tReadout.innerText = `${headroom}W Deficit`; tStatus.innerText = "Thermal Throttling"; updateDot('thermal-dot', 'danger');
-        } else if (headroom < 30) {
-            tReadout.innerText = `${headroom}W Clearance`; tStatus.innerText = "Warm / Loud Fans"; updateDot('thermal-dot', 'warn');
+            if (headroom < -10) {
+                tReadout.innerText = `${headroom}W Deficit`; tStatus.innerText = "Thermal Throttling"; updateDot('thermal-dot', 'danger');
+            } else if (headroom < 30) {
+                tReadout.innerText = `${headroom}W Clearance`; tStatus.innerText = "Warm / Loud Fans"; updateDot('thermal-dot', 'warn');
+            } else {
+                tReadout.innerText = `+${headroom}W Headroom`; tStatus.innerText = "Excellent Cooling"; updateDot('thermal-dot', 'ok');
+            }
+        } else if (cpu && !cooler) {
+            tReadout.innerText = "Overheating Risk"; tStatus.innerText = "No Cooler"; updateDot('thermal-dot', 'danger');
         } else {
-            tReadout.innerText = `+${headroom}W Headroom`; tStatus.innerText = "Excellent Cooling"; updateDot('thermal-dot', 'ok');
+            tReadout.innerText = "N/A"; tStatus.innerText = "Awaiting CPU/Cooler"; updateDot('thermal-dot', '');
         }
-    } else if (cpu && !cooler) {
-        tReadout.innerText = "Overheating Risk"; tStatus.innerText = "No Cooler"; updateDot('thermal-dot', 'danger');
-    } else {
-        tReadout.innerText = "N/A"; tStatus.innerText = "Awaiting CPU/Cooler"; updateDot('thermal-dot', '');
     }
 
     const pStatus = document.getElementById('psu-status');
     const pReadout = document.getElementById('wattage-readout');
     const psuMax = psu ? psu.watt : 0;
-    pReadout.innerText = `${sysWattage} / ${psuMax} W`;
+    if(pReadout) pReadout.innerText = `${sysWattage} / ${psuMax} W`;
 
-    if (!psu && sysWattage > 50) {
-        pStatus.innerText = "Awaiting PSU"; updateDot('psu-dot', 'warn');
-    } else if (psu) {
-        if (sysWattage > psuMax * 0.9) {
-            pStatus.innerText = "Critical Overload Risk"; updateDot('psu-dot', 'danger');
-        } else if (sysWattage > psuMax * 0.75) {
-            pStatus.innerText = "Efficient Load"; updateDot('psu-dot', 'ok');
+    if(pStatus) {
+        if (!psu && sysWattage > 50) {
+            pStatus.innerText = "Awaiting PSU"; updateDot('psu-dot', 'warn');
+        } else if (psu) {
+            if (sysWattage > psuMax * 0.9) {
+                pStatus.innerText = "Critical Overload Risk"; updateDot('psu-dot', 'danger');
+            } else if (sysWattage > psuMax * 0.75) {
+                pStatus.innerText = "Efficient Load"; updateDot('psu-dot', 'ok');
+            } else {
+                pStatus.innerText = "Sufficient"; updateDot('psu-dot', 'ok');
+            }
         } else {
-            pStatus.innerText = "Sufficient"; updateDot('psu-dot', 'ok');
+            pStatus.innerText = "Awaiting Hardware"; updateDot('psu-dot', '');
         }
-    } else {
-        pStatus.innerText = "Awaiting Hardware"; updateDot('psu-dot', '');
     }
 
-    document.getElementById('total-price').innerText = formatPrice(totalUsd);
-    document.getElementById('gaming-bar').style.width = `${(gameScore/1000)*100}%`;
-    document.getElementById('gaming-score').innerText = `${gameScore} / 1000`;
+    const totalPriceEl = document.getElementById('total-price');
+    if(totalPriceEl) totalPriceEl.innerText = formatPrice(totalUsd);
+    
+    const gamingBarEl = document.getElementById('gaming-bar');
+    if(gamingBarEl) gamingBarEl.style.width = `${(gameScore/1000)*100}%`;
+    
+    const gamingScoreEl = document.getElementById('gaming-score');
+    if(gamingScoreEl) gamingScoreEl.innerText = `${gameScore} / 1000`;
 }
 
 document.addEventListener('DOMContentLoaded', init);
