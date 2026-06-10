@@ -1,6 +1,6 @@
 /**
- * Mac Architect PC Simulator Engine - With Cloud Sync!
- * Uses Firebase Firestore via CDN + Local Fallbacks
+ * Mac Architect PC Simulator Engine
+ * Features: Cloud Sync, Overclocking, Advanced Filtering & Sorting
  */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
@@ -22,8 +22,6 @@ try {
     if (firebaseConfig.apiKey !== "YOUR_API_KEY_HERE" && firebaseConfig.apiKey !== "") {
         const app = initializeApp(firebaseConfig);
         dbFirestore = getFirestore(app);
-    } else {
-        console.warn("Firebase not configured. Cloud save disabled. Using Local features only.");
     }
 } catch (e) {
     console.error("Firebase init failed:", e);
@@ -39,6 +37,8 @@ const state = {
     requiredSocket: null, 
     requiredRamType: null,
     ramQuantity: 2, 
+    isOverclocked: false,   // NEW STATE
+    filters: {},            // NEW STATE (per category brand/sort)
     loadout: { 
         cpu: null, cooler: null, mobo: null, ram: null, gpu: null, 
         ssd: [], hdd: [], case_fan: [], psu: null 
@@ -54,6 +54,11 @@ async function init() {
         if (!response.ok) throw new Error("Failed to load JSON");
         db = await response.json();
         
+        // Initialize Default Filters
+        db.categories.forEach(cat => {
+            state.filters[cat.id] = { brand: 'All', sort: 'default' };
+        });
+
         setupEventListeners();
         renderInventory();
         renderBlueprint();
@@ -67,13 +72,17 @@ async function init() {
 
 function setupEventListeners() {
     document.getElementById('currency-toggle').addEventListener('click', toggleCurrency);
+    
     document.getElementById('search-box').addEventListener('input', (e) => {
         state.searchQuery = e.target.value.toLowerCase();
         renderInventory();
     });
+    
     document.querySelectorAll('.btn-platform').forEach(btn => {
         btn.addEventListener('click', (e) => setPlatform(e.target.dataset.platform));
     });
+
+    document.getElementById('btn-overclock').addEventListener('click', toggleOverclock);
 
     // Modal UI Listeners
     document.getElementById('btn-open-sync').addEventListener('click', () => {
@@ -103,12 +112,12 @@ function serializeLoadout() {
         psu: state.loadout.psu?.id || null,
         ssd: state.loadout.ssd.map(i => i.id),
         hdd: state.loadout.hdd.map(i => i.id),
-        case_fan: state.loadout.case_fan.map(i => i.id)
+        case_fan: state.loadout.case_fan.map(i => i.id),
+        isOverclocked: state.isOverclocked
     };
 }
 
 function deserializeLoadout(data) {
-    // Reset loadout
     state.loadout = { cpu: null, cooler: null, mobo: null, ram: null, gpu: null, ssd: [], hdd: [], case_fan: [], psu: null };
     
     const findItem = (cat, id) => db.items[cat]?.find(i => i.id === id) || null;
@@ -121,6 +130,18 @@ function deserializeLoadout(data) {
     if (data.gpu) state.loadout.gpu = findItem('gpu', data.gpu);
     if (data.psu) state.loadout.psu = findItem('psu', data.psu);
     
+    if (data.isOverclocked !== undefined) {
+        state.isOverclocked = data.isOverclocked;
+        const ocBtn = document.getElementById('btn-overclock');
+        if (state.isOverclocked) {
+            ocBtn.classList.add('active');
+            ocBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Overclock: ON`;
+        } else {
+            ocBtn.classList.remove('active');
+            ocBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Overclock: OFF`;
+        }
+    }
+    
     ['ssd', 'hdd', 'case_fan'].forEach(cat => {
         if (data[cat]) {
             data[cat].forEach(id => {
@@ -132,7 +153,6 @@ function deserializeLoadout(data) {
         }
     });
 
-    // Re-evaluate Architecture Filters
     if (state.loadout.cpu) {
         state.platform = state.loadout.cpu.brand;
         state.requiredSocket = state.loadout.cpu.socket;
@@ -147,22 +167,14 @@ function deserializeLoadout(data) {
     
     state.requiredRamType = state.loadout.mobo ? state.loadout.mobo.type : null;
 
-    // Refresh UI
-    renderInventory();
-    renderBlueprint();
-    updateMetrics();
+    renderInventory(); renderBlueprint(); updateMetrics();
     document.getElementById('sync-modal').classList.add('hidden');
 }
 
-// 3. Sync Logic (Cloud & Local)
 async function saveToCloud() {
-    if (!dbFirestore) {
-        alert("Cloud saving requires Firebase configuration in script.js."); return;
-    }
-    
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase(); // Gen 6 digit code
+    if (!dbFirestore) return;
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase(); 
     const payload = serializeLoadout();
-    
     const btn = document.getElementById('btn-cloud-save');
     btn.innerText = "Saving..."; btn.disabled = true;
 
@@ -171,31 +183,26 @@ async function saveToCloud() {
         document.getElementById('cloud-code-display').classList.remove('hidden');
         document.getElementById('generated-code').innerText = code;
     } catch (e) {
-        console.error("Save failed:", e); alert("Failed to save to cloud.");
+        alert("Failed to save to cloud.");
     } finally {
         btn.innerText = "Generate Build Code"; btn.disabled = false;
     }
 }
 
 async function loadFromCloud() {
-    if (!dbFirestore) {
-        alert("Cloud loading requires Firebase configuration in script.js."); return;
-    }
+    if (!dbFirestore) return;
     const codeInput = document.getElementById('input-cloud-code').value.toUpperCase().trim();
-    if (codeInput.length !== 6) { alert("Code must be 6 characters long."); return; }
+    if (codeInput.length !== 6) return;
 
     const btn = document.getElementById('btn-cloud-load');
     btn.innerText = "Loading..."; btn.disabled = true;
 
     try {
         const docSnap = await getDoc(doc(dbFirestore, "builds", codeInput));
-        if (docSnap.exists()) {
-            deserializeLoadout(docSnap.data());
-        } else {
-            alert("Build code not found!");
-        }
+        if (docSnap.exists()) deserializeLoadout(docSnap.data());
+        else alert("Build code not found!");
     } catch (e) {
-        console.error("Load failed:", e); alert("Failed to connect to cloud.");
+        alert("Failed to connect to cloud.");
     } finally {
         btn.innerText = "Load from Cloud"; btn.disabled = false;
     }
@@ -216,15 +223,11 @@ function uploadLocal(event) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = function(e) {
-        try {
-            const parsed = JSON.parse(e.target.result);
-            deserializeLoadout(parsed);
-        } catch(err) {
-            alert("Invalid JSON file.");
-        }
+        try { deserializeLoadout(JSON.parse(e.target.result)); } 
+        catch(err) { alert("Invalid JSON file."); }
     }
     reader.readAsText(file);
-    event.target.value = ''; // Reset input
+    event.target.value = '';
 }
 
 
@@ -244,6 +247,22 @@ function setPlatform(platform) {
     renderInventory(); renderBlueprint(); updateMetrics();
 }
 
+function toggleOverclock() {
+    state.isOverclocked = !state.isOverclocked;
+    const btn = document.getElementById('btn-overclock');
+    const indicator = document.getElementById('oc-indicator');
+    if (state.isOverclocked) {
+        btn.classList.add('active');
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Overclock: ON`;
+        indicator.style.display = 'block';
+    } else {
+        btn.classList.remove('active');
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Overclock: OFF`;
+        indicator.style.display = 'none';
+    }
+    updateMetrics(); // Recalculate watts/thermals/scores!
+}
+
 function checkCompatibility(catId, item) {
     if (catId === 'cpu' && state.platform && item.brand !== state.platform) return false;
     if (catId === 'mobo' && state.requiredSocket && item.socket !== state.requiredSocket) return false;
@@ -261,11 +280,13 @@ function updateCompatibilityAlert() {
         if (state.loadout.mobo && !state.loadout.ram) msgs.push(`RAM Locked: ${state.requiredRamType}. Select Memory.`);
     }
 
-    if (msgs.length > 0) {
-        alertBox.innerHTML = msgs.join("<br>"); alertBox.classList.add('visible');
-    } else {
-        alertBox.classList.remove('visible');
-    }
+    if (msgs.length > 0) { alertBox.innerHTML = msgs.join("<br>"); alertBox.classList.add('visible'); } 
+    else { alertBox.classList.remove('visible'); }
+}
+
+window.setFilter = function(catId, type, value) {
+    state.filters[catId][type] = value;
+    renderInventory();
 }
 
 function renderInventory() {
@@ -287,20 +308,19 @@ function renderInventory() {
         btn.className = 'category-btn';
         let statusBadge = statusText ? `<span class="category-status">${statusText}</span>` : '';
         btn.innerHTML = `<span>${cat.name} ${statusBadge}</span> 
-                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(${openTabs.includes(cat.id) ? '180deg' : '0deg'}); transition: 0.2s;"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transform: rotate(${openTabs.includes(cat.id) ? '180deg' : '0deg'}); transition: 0.2s;"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
         btn.onclick = () => {
             if (!block.classList.contains('active')) {
-                block.classList.add('active'); 
-                btn.querySelector('svg').style.transform = 'rotate(180deg)';
+                block.classList.add('active'); btn.querySelector('svg').style.transform = 'rotate(180deg)';
             } else {
-                block.classList.remove('active'); 
-                btn.querySelector('svg').style.transform = 'rotate(0deg)';
+                block.classList.remove('active'); btn.querySelector('svg').style.transform = 'rotate(0deg)';
             }
         };
 
         const listInner = document.createElement('div');
         listInner.className = 'item-list-inner';
 
+        // 1. Initial Compatibility & Search Filter
         let validItems = (db.items[cat.id] || []).filter(item => 
             (item.name.toLowerCase().includes(state.searchQuery) || (item.socket && item.socket.toLowerCase().includes(state.searchQuery))) && checkCompatibility(cat.id, item)
         );
@@ -308,6 +328,39 @@ function renderInventory() {
         if (validItems.length === 0) {
             listInner.innerHTML = `<div class="item-card"><p style="color:var(--text-muted);">No compatible hardware found.</p></div>`;
         } else {
+            // Extract Unique Brands for Filter UI
+            const brands = ['All', ...new Set(validItems.map(i => i.brand || i.name.split(' ')[0]))];
+            const currentFilter = state.filters[cat.id];
+
+            // Build Filter UI
+            let filterHtml = `
+                <div class="filter-bar">
+                    <div class="brand-chips">
+                        ${brands.map(b => `<button class="chip ${currentFilter.brand === b ? 'active' : ''}" onclick="window.setFilter('${cat.id}', 'brand', '${b}')">${b}</button>`).join('')}
+                    </div>
+                    <select class="sort-select" onchange="window.setFilter('${cat.id}', 'sort', this.value)">
+                        <option value="default" ${currentFilter.sort === 'default' ? 'selected' : ''}>Default Sort</option>
+                        <option value="price_asc" ${currentFilter.sort === 'price_asc' ? 'selected' : ''}>Price: Low to High</option>
+                        <option value="price_desc" ${currentFilter.sort === 'price_desc' ? 'selected' : ''}>Price: High to Low</option>
+                    </select>
+                </div>
+            `;
+
+            // Apply Brand Filter
+            if (currentFilter.brand !== 'All') {
+                validItems = validItems.filter(i => (i.brand || i.name.split(' ')[0]) === currentFilter.brand);
+            }
+
+            // Apply Sorting
+            if (currentFilter.sort === 'price_asc') {
+                validItems.sort((a, b) => a.priceUsd - b.priceUsd);
+            } else if (currentFilter.sort === 'price_desc') {
+                validItems.sort((a, b) => b.priceUsd - a.priceUsd);
+            }
+
+            listInner.innerHTML = filterHtml;
+
+            // Render Items
             validItems.forEach(item => {
                 const isMulti = MULTI_SLOT_CATEGORIES.includes(cat.id);
                 const count = isMulti ? state.loadout[cat.id].filter(i => i.id === item.id).length : 0;
@@ -403,7 +456,6 @@ function renderBlueprint() {
     });
 }
 
-// Module Global Assignments (required since type="module" isolates functions)
 window.equipItem = function(categoryId, itemId) {
     const item = {...db.items[categoryId].find(i => i.id === itemId)};
     
@@ -477,6 +529,10 @@ function updateMetrics() {
 
     const { cpu, cooler, gpu, ram, psu } = state.loadout;
 
+    // OVERCLOCK MULTIPLIERS (Wattage up 20%, Perf up 8%)
+    const ocWattMult = state.isOverclocked ? 1.20 : 1.0;
+    const ocPerfMult = state.isOverclocked ? 1.08 : 1.0;
+
     Object.keys(state.loadout).forEach(key => {
         if (MULTI_SLOT_CATEGORIES.includes(key)) {
             state.loadout[key].forEach(item => {
@@ -488,21 +544,34 @@ function updateMetrics() {
             if (item) {
                 let multiplier = (key === 'ram') ? state.ramQuantity : 1;
                 totalUsd += (item.priceUsd * multiplier);
-                if (key !== 'psu' && item.watt) sysWattage += (item.watt * multiplier);
+                
+                if (key !== 'psu' && item.watt) {
+                    // Apply OC Wattage bump only to CPU and GPU
+                    if (key === 'cpu' || key === 'gpu') {
+                        sysWattage += Math.round(item.watt * ocWattMult);
+                    } else {
+                        sysWattage += (item.watt * multiplier);
+                    }
+                }
             }
         }
     });
 
     if (cpu && gpu && ram) {
         let ramBonus = (state.ramQuantity >= 2) ? 1.0 : 0.85;
-        gameScore = Math.round(((gpu.perf * 0.65) + (cpu.perf * 0.30) + ((ram.perf * ramBonus) * 0.05)) * 10);
+        let cpuP = cpu.perf * ocPerfMult;
+        let gpuP = gpu.perf * ocPerfMult;
+
+        gameScore = Math.round(((gpuP * 0.65) + (cpuP * 0.30) + ((ram.perf * ramBonus) * 0.05)) * 10);
         if (gameScore > 1000) gameScore = 1000;
     }
 
     const bStatus = document.getElementById('bottleneck-status');
     const bReadout = document.getElementById('bottleneck-readout');
     if (cpu && gpu) {
-        const cpuP = cpu.perf; const gpuP = gpu.perf;
+        const cpuP = cpu.perf * ocPerfMult; 
+        const gpuP = gpu.perf * ocPerfMult;
+
         if (gpuP > cpuP * 1.3) {
             bReadout.innerText = "Severe CPU Limit"; bStatus.innerText = "GPU Starved"; updateDot('bottleneck-dot', 'danger');
         } else if (gpuP > cpuP * 1.15) {
@@ -519,7 +588,9 @@ function updateMetrics() {
     const tStatus = document.getElementById('thermal-status');
     const tReadout = document.getElementById('thermal-readout');
     if (cpu && cooler) {
-        const headroom = cooler.tdp_max - cpu.watt;
+        let currentCpuWatt = Math.round(cpu.watt * ocWattMult);
+        const headroom = cooler.tdp_max - currentCpuWatt;
+
         if (headroom < -10) {
             tReadout.innerText = `${headroom}W Deficit`; tStatus.innerText = "Thermal Throttling"; updateDot('thermal-dot', 'danger');
         } else if (headroom < 30) {
