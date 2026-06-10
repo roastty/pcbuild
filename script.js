@@ -1,0 +1,560 @@
+/**
+ * Mac Architect PC Simulator Engine - With Cloud Sync!
+ * Uses Firebase Firestore via CDN + Local Fallbacks
+ */
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+
+// --- FIREBASE CONFIGURATION ---
+const firebaseConfig = {
+    apiKey: "AIzaSyAk0Ty1REKW99i3c7z3MMjpe8fN_PnKYp8",
+    authDomain: "pc-building-project-fa8b6.firebaseapp.com",
+    projectId: "pc-building-project-fa8b6",
+    storageBucket: "pc-building-project-fa8b6.firebasestorage.app",
+    messagingSenderId: "16604726972",
+    appId: "1:16604726972:web:370c1e1718db4c033241b9",
+    measurementId: "G-XNK2QCJ85E"
+};
+
+let dbFirestore = null;
+try {
+    if (firebaseConfig.apiKey !== "YOUR_API_KEY_HERE" && firebaseConfig.apiKey !== "") {
+        const app = initializeApp(firebaseConfig);
+        dbFirestore = getFirestore(app);
+    } else {
+        console.warn("Firebase not configured. Cloud save disabled. Using Local features only.");
+    }
+} catch (e) {
+    console.error("Firebase init failed:", e);
+}
+
+let db = { categories: [], items: {} };
+
+const state = {
+    currency: 'USD',
+    exchangeRate: 16000,
+    searchQuery: '',
+    platform: null, 
+    requiredSocket: null, 
+    requiredRamType: null,
+    ramQuantity: 2, 
+    loadout: { 
+        cpu: null, cooler: null, mobo: null, ram: null, gpu: null, 
+        ssd: [], hdd: [], case_fan: [], psu: null 
+    }
+};
+
+const MULTI_SLOT_CATEGORIES = ['ssd', 'hdd', 'case_fan'];
+
+// 1. Core Initialization
+async function init() {
+    try {
+        const response = await fetch('data.json');
+        if (!response.ok) throw new Error("Failed to load JSON");
+        db = await response.json();
+        
+        setupEventListeners();
+        renderInventory();
+        renderBlueprint();
+        updateMetrics();
+    } catch (error) {
+        console.error(error);
+        document.getElementById('component-accordion').innerHTML = 
+            `<div style="color:var(--accent-red); padding:1rem;">ERROR: Could not load data.json. Ensure you are running a local server.</div>`;
+    }
+}
+
+function setupEventListeners() {
+    document.getElementById('currency-toggle').addEventListener('click', toggleCurrency);
+    document.getElementById('search-box').addEventListener('input', (e) => {
+        state.searchQuery = e.target.value.toLowerCase();
+        renderInventory();
+    });
+    document.querySelectorAll('.btn-platform').forEach(btn => {
+        btn.addEventListener('click', (e) => setPlatform(e.target.dataset.platform));
+    });
+
+    // Modal UI Listeners
+    document.getElementById('btn-open-sync').addEventListener('click', () => {
+        document.getElementById('sync-modal').classList.remove('hidden');
+    });
+    document.getElementById('btn-close-sync').addEventListener('click', () => {
+        document.getElementById('sync-modal').classList.add('hidden');
+    });
+
+    // Cloud & Local Sync Listeners
+    document.getElementById('btn-cloud-save').addEventListener('click', saveToCloud);
+    document.getElementById('btn-cloud-load').addEventListener('click', loadFromCloud);
+    document.getElementById('btn-local-download').addEventListener('click', downloadLocal);
+    document.getElementById('btn-local-upload').addEventListener('click', () => document.getElementById('file-upload-input').click());
+    document.getElementById('file-upload-input').addEventListener('change', uploadLocal);
+}
+
+// 2. Data Serialization Engine
+function serializeLoadout() {
+    return {
+        cpu: state.loadout.cpu?.id || null,
+        cooler: state.loadout.cooler?.id || null,
+        mobo: state.loadout.mobo?.id || null,
+        ram: state.loadout.ram?.id || null,
+        ramQuantity: state.ramQuantity,
+        gpu: state.loadout.gpu?.id || null,
+        psu: state.loadout.psu?.id || null,
+        ssd: state.loadout.ssd.map(i => i.id),
+        hdd: state.loadout.hdd.map(i => i.id),
+        case_fan: state.loadout.case_fan.map(i => i.id)
+    };
+}
+
+function deserializeLoadout(data) {
+    // Reset loadout
+    state.loadout = { cpu: null, cooler: null, mobo: null, ram: null, gpu: null, ssd: [], hdd: [], case_fan: [], psu: null };
+    
+    const findItem = (cat, id) => db.items[cat]?.find(i => i.id === id) || null;
+
+    if (data.cpu) state.loadout.cpu = findItem('cpu', data.cpu);
+    if (data.cooler) state.loadout.cooler = findItem('cooler', data.cooler);
+    if (data.mobo) state.loadout.mobo = findItem('mobo', data.mobo);
+    if (data.ram) state.loadout.ram = findItem('ram', data.ram);
+    if (data.ramQuantity) state.ramQuantity = data.ramQuantity;
+    if (data.gpu) state.loadout.gpu = findItem('gpu', data.gpu);
+    if (data.psu) state.loadout.psu = findItem('psu', data.psu);
+    
+    ['ssd', 'hdd', 'case_fan'].forEach(cat => {
+        if (data[cat]) {
+            data[cat].forEach(id => {
+                const item = findItem(cat, id);
+                if (item) {
+                    state.loadout[cat].push({ ...item, instanceId: Date.now().toString() + Math.random().toString() });
+                }
+            });
+        }
+    });
+
+    // Re-evaluate Architecture Filters
+    if (state.loadout.cpu) {
+        state.platform = state.loadout.cpu.brand;
+        state.requiredSocket = state.loadout.cpu.socket;
+        document.querySelectorAll('.btn-platform').forEach(btn => {
+            btn.classList.remove('active-intel', 'active-amd');
+            if(btn.dataset.platform === state.platform) btn.classList.add(state.platform === 'INTEL' ? 'active-intel' : 'active-amd');
+        });
+    } else {
+        state.platform = null; state.requiredSocket = null;
+        document.querySelectorAll('.btn-platform').forEach(btn => btn.classList.remove('active-intel', 'active-amd'));
+    }
+    
+    state.requiredRamType = state.loadout.mobo ? state.loadout.mobo.type : null;
+
+    // Refresh UI
+    renderInventory();
+    renderBlueprint();
+    updateMetrics();
+    document.getElementById('sync-modal').classList.add('hidden');
+}
+
+// 3. Sync Logic (Cloud & Local)
+async function saveToCloud() {
+    if (!dbFirestore) {
+        alert("Cloud saving requires Firebase configuration in script.js."); return;
+    }
+    
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase(); // Gen 6 digit code
+    const payload = serializeLoadout();
+    
+    const btn = document.getElementById('btn-cloud-save');
+    btn.innerText = "Saving..."; btn.disabled = true;
+
+    try {
+        await setDoc(doc(dbFirestore, "builds", code), payload);
+        document.getElementById('cloud-code-display').classList.remove('hidden');
+        document.getElementById('generated-code').innerText = code;
+    } catch (e) {
+        console.error("Save failed:", e); alert("Failed to save to cloud.");
+    } finally {
+        btn.innerText = "Generate Build Code"; btn.disabled = false;
+    }
+}
+
+async function loadFromCloud() {
+    if (!dbFirestore) {
+        alert("Cloud loading requires Firebase configuration in script.js."); return;
+    }
+    const codeInput = document.getElementById('input-cloud-code').value.toUpperCase().trim();
+    if (codeInput.length !== 6) { alert("Code must be 6 characters long."); return; }
+
+    const btn = document.getElementById('btn-cloud-load');
+    btn.innerText = "Loading..."; btn.disabled = true;
+
+    try {
+        const docSnap = await getDoc(doc(dbFirestore, "builds", codeInput));
+        if (docSnap.exists()) {
+            deserializeLoadout(docSnap.data());
+        } else {
+            alert("Build code not found!");
+        }
+    } catch (e) {
+        console.error("Load failed:", e); alert("Failed to connect to cloud.");
+    } finally {
+        btn.innerText = "Load from Cloud"; btn.disabled = false;
+    }
+}
+
+function downloadLocal() {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(serializeLoadout()));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", "pc_build.json");
+    document.body.appendChild(downloadAnchorNode); 
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+}
+
+function uploadLocal(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const parsed = JSON.parse(e.target.result);
+            deserializeLoadout(parsed);
+        } catch(err) {
+            alert("Invalid JSON file.");
+        }
+    }
+    reader.readAsText(file);
+    event.target.value = ''; // Reset input
+}
+
+
+// --- CORE LOGIC BELOW ---
+function setPlatform(platform) {
+    if (state.platform && state.platform !== platform) {
+        state.loadout.cpu = null; state.loadout.mobo = null; state.loadout.ram = null;
+        state.requiredSocket = null; state.requiredRamType = null;
+    }
+    state.platform = platform;
+    
+    document.querySelectorAll('.btn-platform').forEach(btn => {
+        btn.classList.remove('active-intel', 'active-amd');
+        if(btn.dataset.platform === platform) btn.classList.add(platform === 'INTEL' ? 'active-intel' : 'active-amd');
+    });
+
+    renderInventory(); renderBlueprint(); updateMetrics();
+}
+
+function checkCompatibility(catId, item) {
+    if (catId === 'cpu' && state.platform && item.brand !== state.platform) return false;
+    if (catId === 'mobo' && state.requiredSocket && item.socket !== state.requiredSocket) return false;
+    if (catId === 'ram' && state.requiredRamType && item.type !== state.requiredRamType) return false;
+    return true;
+}
+
+function updateCompatibilityAlert() {
+    const alertBox = document.getElementById('compatibility-alert');
+    let msgs = [];
+    if (!state.platform) msgs.push("Awaiting Platform Selection (Intel/AMD).");
+    else {
+        if (!state.loadout.cpu) msgs.push(`Platform: ${state.platform}. Select a CPU.`);
+        if (state.loadout.cpu && !state.loadout.mobo) msgs.push(`Socket Locked: ${state.requiredSocket}. Select Motherboard.`);
+        if (state.loadout.mobo && !state.loadout.ram) msgs.push(`RAM Locked: ${state.requiredRamType}. Select Memory.`);
+    }
+
+    if (msgs.length > 0) {
+        alertBox.innerHTML = msgs.join("<br>"); alertBox.classList.add('visible');
+    } else {
+        alertBox.classList.remove('visible');
+    }
+}
+
+function renderInventory() {
+    updateCompatibilityAlert();
+    const container = document.getElementById('component-accordion');
+    const openTabs = Array.from(document.querySelectorAll('.category-block.active')).map(b => b.dataset.cat);
+    container.innerHTML = '';
+
+    db.categories.forEach(cat => {
+        const block = document.createElement('div');
+        block.className = `category-block ${openTabs.includes(cat.id) ? 'active' : ''}`;
+        block.dataset.cat = cat.id;
+        
+        let statusText = "";
+        if (cat.id === 'mobo' && state.requiredSocket) statusText = `Required: ${state.requiredSocket}`;
+        if (cat.id === 'ram' && state.requiredRamType) statusText = `Required: ${state.requiredRamType}`;
+
+        const btn = document.createElement('button');
+        btn.className = 'category-btn';
+        let statusBadge = statusText ? `<span class="category-status">${statusText}</span>` : '';
+        btn.innerHTML = `<span>${cat.name} ${statusBadge}</span> 
+                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(${openTabs.includes(cat.id) ? '180deg' : '0deg'}); transition: 0.2s;"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+        btn.onclick = () => {
+            if (!block.classList.contains('active')) {
+                block.classList.add('active'); 
+                btn.querySelector('svg').style.transform = 'rotate(180deg)';
+            } else {
+                block.classList.remove('active'); 
+                btn.querySelector('svg').style.transform = 'rotate(0deg)';
+            }
+        };
+
+        const listInner = document.createElement('div');
+        listInner.className = 'item-list-inner';
+
+        let validItems = (db.items[cat.id] || []).filter(item => 
+            (item.name.toLowerCase().includes(state.searchQuery) || (item.socket && item.socket.toLowerCase().includes(state.searchQuery))) && checkCompatibility(cat.id, item)
+        );
+
+        if (validItems.length === 0) {
+            listInner.innerHTML = `<div class="item-card"><p style="color:var(--text-muted);">No compatible hardware found.</p></div>`;
+        } else {
+            validItems.forEach(item => {
+                const isMulti = MULTI_SLOT_CATEGORIES.includes(cat.id);
+                const count = isMulti ? state.loadout[cat.id].filter(i => i.id === item.id).length : 0;
+                const isEquipped = !isMulti && state.loadout[cat.id]?.id === item.id;
+                
+                let tags = '';
+                if(item.socket) tags += `<span class="tag">${item.socket}</span>`;
+                if(item.type) tags += `<span class="tag">${item.type}</span>`;
+                if(item.watt) tags += `<span class="tag">${item.watt}W</span>`;
+                if(item.tdp_max) tags += `<span class="tag">${item.tdp_max}W Cool</span>`;
+                if(item.perf) tags += `<span class="tag">Score: ${item.perf}</span>`;
+
+                const btnText = isMulti ? (count > 0 ? `Add (+${count})` : 'Add') : (isEquipped ? 'Equipped' : 'Equip');
+
+                const card = document.createElement('div');
+                card.className = 'item-card';
+                card.innerHTML = `
+                    <div class="item-info">
+                        <h4>${item.name}</h4>
+                        <div class="tags">${tags}</div>
+                        <p class="price-tag" data-usd="${item.priceUsd}">${formatPrice(item.priceUsd)}</p>
+                    </div>
+                    <button class="btn-equip ${isEquipped ? 'equipped' : ''}" onclick="window.equipItem('${cat.id}', '${item.id}')">
+                        ${btnText}
+                    </button>
+                `;
+                listInner.appendChild(card);
+            });
+        }
+
+        const list = document.createElement('div');
+        list.className = 'item-list';
+        list.appendChild(listInner);
+        block.appendChild(btn);
+        block.appendChild(list);
+        container.appendChild(block);
+    });
+}
+
+function renderBlueprint() {
+    const container = document.getElementById('loadout-slots');
+    container.innerHTML = '';
+
+    db.categories.forEach(cat => {
+        const slot = document.createElement('div');
+        slot.className = 'loadout-slot';
+        
+        let header = `<div class="slot-header">${cat.name}</div>`;
+        let innerHtml = '';
+
+        const isMulti = MULTI_SLOT_CATEGORIES.includes(cat.id);
+        
+        if (isMulti) {
+            const arr = state.loadout[cat.id];
+            if (arr.length === 0) {
+                innerHtml = `<div class="slot-empty">Awaiting hardware...</div>`;
+            } else {
+                arr.forEach(item => {
+                    innerHtml += `
+                        <div class="slot-item-row" style="margin-bottom: 4px;">
+                            <span class="slot-item-name">• ${item.name}</span>
+                            <button class="btn-remove" onclick="window.removeMultiItem('${cat.id}', '${item.instanceId}')">Remove</button>
+                        </div>
+                    `;
+                });
+            }
+        } else {
+            const item = state.loadout[cat.id];
+            if (!item) {
+                innerHtml = `<div class="slot-empty">Awaiting hardware...</div>`;
+            } else {
+                let modifier = '';
+                if (cat.id === 'ram') {
+                    modifier = `
+                        <div class="ram-controls">
+                            <button class="ram-btn" onclick="window.changeRamQty(-1)">-</button>
+                            <span style="font-size:0.85rem; font-weight:600;">${state.ramQuantity}x</span>
+                            <button class="ram-btn" onclick="window.changeRamQty(1)">+</button>
+                        </div>
+                    `;
+                }
+                innerHtml = `
+                    <div class="slot-item-row">
+                        <span class="slot-item-name">${item.name} ${modifier}</span>
+                        <button class="btn-remove" onclick="window.removeSingleItem('${cat.id}')">Remove</button>
+                    </div>
+                `;
+            }
+        }
+
+        slot.innerHTML = header + innerHtml;
+        container.appendChild(slot);
+    });
+}
+
+// Module Global Assignments (required since type="module" isolates functions)
+window.equipItem = function(categoryId, itemId) {
+    const item = {...db.items[categoryId].find(i => i.id === itemId)};
+    
+    if (MULTI_SLOT_CATEGORIES.includes(categoryId)) {
+        item.instanceId = Date.now().toString() + Math.random().toString();
+        state.loadout[categoryId].push(item);
+    } else {
+        state.loadout[categoryId] = item;
+        if (categoryId === 'cpu') {
+            state.requiredSocket = item.socket;
+            if (state.loadout.mobo && state.loadout.mobo.socket !== item.socket) {
+                state.loadout.mobo = null; state.requiredRamType = null; state.loadout.ram = null;
+            }
+        }
+        if (categoryId === 'mobo') {
+            state.requiredRamType = item.type;
+            if (state.loadout.ram && state.loadout.ram.type !== item.type) state.loadout.ram = null;
+        }
+    }
+    renderInventory(); renderBlueprint(); updateMetrics();
+};
+
+window.removeSingleItem = function(categoryId) {
+    state.loadout[categoryId] = null;
+    if (categoryId === 'cpu') {
+        state.requiredSocket = null; state.loadout.mobo = null;
+        state.requiredRamType = null; state.loadout.ram = null;
+    }
+    if (categoryId === 'mobo') {
+        state.requiredRamType = null; state.loadout.ram = null;
+    }
+    renderInventory(); renderBlueprint(); updateMetrics();
+};
+
+window.removeMultiItem = function(categoryId, instanceId) {
+    state.loadout[categoryId] = state.loadout[categoryId].filter(i => i.instanceId !== instanceId);
+    renderInventory(); renderBlueprint(); updateMetrics();
+};
+
+window.changeRamQty = function(delta) {
+    let newQty = state.ramQuantity + delta;
+    if (newQty >= 1 && newQty <= 4) {
+        state.ramQuantity = newQty;
+        renderBlueprint(); updateMetrics();
+    }
+};
+
+function toggleCurrency() {
+    state.currency = state.currency === 'USD' ? 'IDR' : 'USD';
+    document.getElementById('currency-toggle').innerText = state.currency === 'USD' ? 'USD ($)' : 'IDR (Rp.)';
+    document.querySelectorAll('.price-tag').forEach(tag => {
+        tag.innerText = formatPrice(parseFloat(tag.getAttribute('data-usd')));
+    });
+    updateMetrics();
+}
+
+function formatPrice(usdPrice) {
+    if (state.currency === 'USD') return `$${usdPrice.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+    return `Rp ${(usdPrice * state.exchangeRate).toLocaleString('id-ID')}`;
+}
+
+function updateDot(id, statusClass) {
+    const el = document.getElementById(id);
+    el.className = `status-dot ${statusClass}`;
+}
+
+function updateMetrics() {
+    let totalUsd = 0;
+    let sysWattage = 50; 
+    let gameScore = 0;
+
+    const { cpu, cooler, gpu, ram, psu } = state.loadout;
+
+    Object.keys(state.loadout).forEach(key => {
+        if (MULTI_SLOT_CATEGORIES.includes(key)) {
+            state.loadout[key].forEach(item => {
+                totalUsd += item.priceUsd;
+                sysWattage += (item.watt || 0);
+            });
+        } else {
+            const item = state.loadout[key];
+            if (item) {
+                let multiplier = (key === 'ram') ? state.ramQuantity : 1;
+                totalUsd += (item.priceUsd * multiplier);
+                if (key !== 'psu' && item.watt) sysWattage += (item.watt * multiplier);
+            }
+        }
+    });
+
+    if (cpu && gpu && ram) {
+        let ramBonus = (state.ramQuantity >= 2) ? 1.0 : 0.85;
+        gameScore = Math.round(((gpu.perf * 0.65) + (cpu.perf * 0.30) + ((ram.perf * ramBonus) * 0.05)) * 10);
+        if (gameScore > 1000) gameScore = 1000;
+    }
+
+    const bStatus = document.getElementById('bottleneck-status');
+    const bReadout = document.getElementById('bottleneck-readout');
+    if (cpu && gpu) {
+        const cpuP = cpu.perf; const gpuP = gpu.perf;
+        if (gpuP > cpuP * 1.3) {
+            bReadout.innerText = "Severe CPU Limit"; bStatus.innerText = "GPU Starved"; updateDot('bottleneck-dot', 'danger');
+        } else if (gpuP > cpuP * 1.15) {
+            bReadout.innerText = "CPU Limit"; bStatus.innerText = "GPU Waiting"; updateDot('bottleneck-dot', 'warn');
+        } else if (cpuP > gpuP * 1.3) {
+            bReadout.innerText = "GPU Limit"; bStatus.innerText = "CPU Overkill"; updateDot('bottleneck-dot', 'warn');
+        } else {
+            bReadout.innerText = "Optimal"; bStatus.innerText = "Balanced"; updateDot('bottleneck-dot', 'ok');
+        }
+    } else {
+        bReadout.innerText = "N/A"; bStatus.innerText = "Incomplete"; updateDot('bottleneck-dot', '');
+    }
+
+    const tStatus = document.getElementById('thermal-status');
+    const tReadout = document.getElementById('thermal-readout');
+    if (cpu && cooler) {
+        const headroom = cooler.tdp_max - cpu.watt;
+        if (headroom < -10) {
+            tReadout.innerText = `${headroom}W Deficit`; tStatus.innerText = "Thermal Throttling"; updateDot('thermal-dot', 'danger');
+        } else if (headroom < 30) {
+            tReadout.innerText = `${headroom}W Clearance`; tStatus.innerText = "Warm / Loud Fans"; updateDot('thermal-dot', 'warn');
+        } else {
+            tReadout.innerText = `+${headroom}W Headroom`; tStatus.innerText = "Excellent Cooling"; updateDot('thermal-dot', 'ok');
+        }
+    } else if (cpu && !cooler) {
+        tReadout.innerText = "Overheating Risk"; tStatus.innerText = "No Cooler"; updateDot('thermal-dot', 'danger');
+    } else {
+        tReadout.innerText = "N/A"; tStatus.innerText = "Awaiting CPU/Cooler"; updateDot('thermal-dot', '');
+    }
+
+    const pStatus = document.getElementById('psu-status');
+    const pReadout = document.getElementById('wattage-readout');
+    const psuMax = psu ? psu.watt : 0;
+    pReadout.innerText = `${sysWattage} / ${psuMax} W`;
+
+    if (!psu && sysWattage > 50) {
+        pStatus.innerText = "Awaiting PSU"; updateDot('psu-dot', 'warn');
+    } else if (psu) {
+        if (sysWattage > psuMax * 0.9) {
+            pStatus.innerText = "Critical Overload Risk"; updateDot('psu-dot', 'danger');
+        } else if (sysWattage > psuMax * 0.75) {
+            pStatus.innerText = "Efficient Load"; updateDot('psu-dot', 'ok');
+        } else {
+            pStatus.innerText = "Sufficient"; updateDot('psu-dot', 'ok');
+        }
+    } else {
+        pStatus.innerText = "Awaiting Hardware"; updateDot('psu-dot', '');
+    }
+
+    document.getElementById('total-price').innerText = formatPrice(totalUsd);
+    document.getElementById('gaming-bar').style.width = `${(gameScore/1000)*100}%`;
+    document.getElementById('gaming-score').innerText = `${gameScore} / 1000`;
+}
+
+document.addEventListener('DOMContentLoaded', init);

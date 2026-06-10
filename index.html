@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PC Architect Pro</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- HEADER -->
+        <header class="top-bar glass-panel">
+            <div class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-blue);"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                <span class="pro-text">Architect <span class="pro-badge">Pro</span></span>
+            </div>
+            <div class="controls">
+                <button id="btn-open-sync" class="btn-pill" style="margin-right: 8px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:-2px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    Sync
+                </button>
+                <button id="currency-toggle" class="btn-pill">USD ($)</button>
+            </div>
+        </header>
+
+        <main class="layout-grid">
+            <!-- LEFT: INVENTORY -->
+            <aside class="inventory glass-panel" id="inventory-panel">
+                <div class="panel-header">
+                    <h2>Components</h2>
+                    <div class="search-container">
+                        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <input type="text" id="search-box" class="apple-input" placeholder="Search hardware...">
+                    </div>
+                </div>
+
+                <div class="platform-container">
+                    <div class="segmented-control">
+                        <button class="btn-platform" data-platform="INTEL">Intel Core</button>
+                        <button class="btn-platform" data-platform="AMD">AMD Ryzen</button>
+                    </div>
+                </div>
+
+                <div id="compatibility-alert" class="alert-box hidden"></div>
+
+                <div class="accordion" id="component-accordion">
+                    <!-- JS will populate categories here -->
+                </div>
+            </aside>
+
+            <!-- RIGHT: BLUEPRINT & METRICS -->
+            <section class="blueprint glass-panel" id="blueprint-panel">
+                <div class="panel-header">
+                    <h2>Live Telemetry</h2>
+                </div>
+                
+                <div class="metrics-dashboard">
+                    <div class="metric-row">
+                        <div class="metric-title">Total Estimate</div>
+                        <div class="metric-value highlight" id="total-price">$0.00</div>
+                    </div>
+
+                    <div class="metric-box">
+                        <div class="metric-label">System Performance Score</div>
+                        <div class="progress-bar"><div class="fill" id="gaming-bar"></div></div>
+                        <div class="metric-score" id="gaming-score">000 / 1000</div>
+                    </div>
+
+                    <div class="telemetry-grid">
+                        <div class="telemetry-card">
+                            <span class="t-label">Power Draw</span>
+                            <span class="t-val" id="wattage-readout">0 / 0 W</span>
+                            <div class="t-status-row"><div class="status-dot" id="psu-dot"></div><span class="t-status" id="psu-status">Awaiting PSU</span></div>
+                        </div>
+                        <div class="telemetry-card">
+                            <span class="t-label">Bottleneck</span>
+                            <span class="t-val" id="bottleneck-readout">N/A</span>
+                            <div class="t-status-row"><div class="status-dot" id="bottleneck-dot"></div><span class="t-status" id="bottleneck-status">Incomplete</span></div>
+                        </div>
+                        <div class="telemetry-card" style="grid-column: span 2;">
+                            <span class="t-label">Thermal Dynamics</span>
+                            <span class="t-val" id="thermal-readout">N/A</span>
+                            <div class="t-status-row"><div class="status-dot" id="thermal-dot"></div><span class="t-status" id="thermal-status">Awaiting Cooling</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="active-loadout">
+                    <h3>Configuration</h3>
+                    <div id="loadout-slots" class="inset-list">
+                        <!-- JS will populate equipped items here -->
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- MODAL: CLOUD SYNC -->
+    <div id="sync-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h3>Build Synchronization</h3>
+                <button class="btn-close" id="btn-close-sync">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="sync-section">
+                    <h4>Firebase Cloud</h4>
+                    <p class="sync-desc">Save your build to the cloud and get a unique retrieval code.</p>
+                    <div class="sync-actions">
+                        <button id="btn-cloud-save" class="btn-action primary">Generate Build Code</button>
+                    </div>
+                    <div id="cloud-code-display" class="code-display hidden">
+                        Your Code: <span id="generated-code" style="font-family: monospace; font-weight: bold; color: var(--accent-blue);">------</span>
+                    </div>
+
+                    <div class="load-action-group">
+                        <input type="text" id="input-cloud-code" class="apple-input" placeholder="Enter 6-digit Build Code" maxlength="6">
+                        <button id="btn-cloud-load" class="btn-action outline">Load from Cloud</button>
+                    </div>
+                </div>
+
+                <hr class="modal-divider">
+
+                <div class="sync-section">
+                    <h4>Local Storage</h4>
+                    <p class="sync-desc">Save or load your build directly to your device.</p>
+                    <div class="sync-actions">
+                        <button id="btn-local-download" class="btn-action outline">Download Build (.json)</button>
+                        <button id="btn-local-upload" class="btn-action outline">Upload Build</button>
+                        <!-- Hidden file input for uploading -->
+                        <input type="file" id="file-upload-input" accept=".json" style="display: none;">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- type="module" allows us to import Firebase safely -->
+    <script type="module" src="script.js"></script>
+</body>
+</html>
