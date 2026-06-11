@@ -208,3 +208,31 @@ body {
 .grade-c { background: linear-gradient(135deg, #FF9F0A, #d39e00); color: black; }
 .grade-d { background: #48484A; color: #D1D1D6; }
 .grade-none { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+
+/* --- TOKOPEDIA BUTTON STYLES --- */
+.btn-tokopedia {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #00AA5B; /* Signature Tokopedia Green */
+    color: #ffffff;
+    text-decoration: none;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.btn-tokopedia:hover {
+    background: #008f4c;
+    box-shadow: 0 4px 12px rgba(0, 170, 91, 0.3);
+    transform: translateY(-1px);
+    color: #ffffff;
+}
+
+.btn-tokopedia svg {
+    width: 14px;
+    height: 14px;
+}
