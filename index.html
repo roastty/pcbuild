@@ -1,9 +1,11 @@
+<!DOCTYPE html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="referrer" content="no-referrer"> <!-- THIS ALLOWS REAL IMAGES TO LOAD ON GITHUB -->
+    <meta name="referrer" content="no-referrer">
     <title>PC Architect Pro</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2.0">
 </head>
 <body>
     <div class="app-container">
@@ -49,12 +51,18 @@
 
             <!-- RIGHT: BLUEPRINT & METRICS -->
             <section class="blueprint glass-panel" id="blueprint-panel">
-                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                     <h2>Live Telemetry</h2>
-                    <button id="btn-overclock" class="btn-pill oc-btn">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                        Overclock: OFF
-                    </button>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="btn-stock-cooler" class="btn-pill oc-btn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg>
+                            Stock Cooler: OFF
+                        </button>
+                        <button id="btn-overclock" class="btn-pill oc-btn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                            Overclock: OFF
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="metrics-dashboard">
@@ -133,7 +141,6 @@
                     <div class="sync-actions">
                         <button id="btn-local-download" class="btn-action outline">Download Build (.json)</button>
                         <button id="btn-local-upload" class="btn-action outline">Upload Build</button>
-                        <!-- Hidden file input for uploading -->
                         <input type="file" id="file-upload-input" accept=".json" style="display: none;">
                     </div>
                 </div>
@@ -141,6 +148,6 @@
         </div>
     </div>
 
-    <script type="module" src="script.js"></script>
+    <script type="module" src="script.js?v=3.0"></script>
 </body>
 </html>
