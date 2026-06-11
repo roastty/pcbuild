@@ -1,6 +1,6 @@
 /**
  * PC Architect Simulator Engine
- * Features: Cloud Sync, Tier System, Anti-Block Image Proxy
+ * Features: Cloud Sync, Tier System, Anti-Block Image Proxy, Tokopedia Integration, Stock Cooler Logic
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
@@ -20,20 +20,18 @@ try {
 let db = { categories: [], items: {} };
 
 const state = {
-    currency: 'USD', exchangeRate: 16000, searchQuery: '', platform: null, 
-    requiredSocket: null, requiredRamType: null, ramQuantity: 2, isOverclocked: false, filters: {},
+    currency: 'USD', exchangeRate: 17989.10, searchQuery: '', platform: null, 
+    requiredSocket: null, requiredRamType: null, ramQuantity: 2, 
+    isOverclocked: false, useStockCooler: false, filters: {},
     loadout: { cpu: null, cooler: null, mobo: null, ram: null, gpu: null, ssd: [], hdd: [], case_fan: [], psu: null }
 };
 
 const MULTI_SLOT_CATEGORIES = ['ssd', 'hdd', 'case_fan'];
 const imgFallback = "https://placehold.co/64x64/1c1c1e/86868b?text=No+Image";
 
-// --- ULTIMATE ANTI-BLOCK IMAGE PROXY ---
-// This bypasses Amazon, Tokopedia, and Shopee hotlink protections!
 function getSafeImageUrl(url) {
     if (!url) return imgFallback;
     if (url.includes('placehold.co') || url.includes('wsrv.nl')) return url;
-    // Strip https:// for the proxy and route it
     const cleanUrl = url.replace(/^https?:\/\//, '');
     return `https://wsrv.nl/?url=${encodeURIComponent(cleanUrl)}`;
 }
@@ -53,7 +51,10 @@ function setupEventListeners() {
     document.getElementById('currency-toggle').addEventListener('click', toggleCurrency);
     document.getElementById('search-box').addEventListener('input', (e) => { state.searchQuery = e.target.value.toLowerCase(); renderInventory(); });
     document.querySelectorAll('.btn-platform').forEach(btn => btn.addEventListener('click', (e) => setPlatform(e.target.dataset.platform)));
+    
     document.getElementById('btn-overclock').addEventListener('click', toggleOverclock);
+    document.getElementById('btn-stock-cooler').addEventListener('click', toggleStockCooler); // NEW EVENT LISTENER
+    
     document.getElementById('btn-open-sync').addEventListener('click', () => document.getElementById('sync-modal').classList.remove('hidden'));
     document.getElementById('btn-close-sync').addEventListener('click', () => document.getElementById('sync-modal').classList.add('hidden'));
     document.getElementById('btn-cloud-save').addEventListener('click', saveToCloud);
@@ -66,7 +67,8 @@ function serializeLoadout() {
         mobo: state.loadout.mobo?.id || null, ram: state.loadout.ram?.id || null,
         ramQuantity: state.ramQuantity, gpu: state.loadout.gpu?.id || null, psu: state.loadout.psu?.id || null,
         ssd: state.loadout.ssd.map(i => i.id), hdd: state.loadout.hdd.map(i => i.id),
-        case_fan: state.loadout.case_fan.map(i => i.id), isOverclocked: state.isOverclocked
+        case_fan: state.loadout.case_fan.map(i => i.id), 
+        isOverclocked: state.isOverclocked, useStockCooler: state.useStockCooler
     };
 }
 
@@ -81,11 +83,25 @@ function deserializeLoadout(data) {
     if (data.ramQuantity) state.ramQuantity = data.ramQuantity;
     if (data.gpu) state.loadout.gpu = findItem('gpu', data.gpu);
     if (data.psu) state.loadout.psu = findItem('psu', data.psu);
+    
     if (data.isOverclocked !== undefined) {
         state.isOverclocked = data.isOverclocked;
         const ocBtn = document.getElementById('btn-overclock');
         if (state.isOverclocked) ocBtn.classList.add('active'); else ocBtn.classList.remove('active');
     }
+
+    if (data.useStockCooler !== undefined) {
+        state.useStockCooler = data.useStockCooler;
+        const scBtn = document.getElementById('btn-stock-cooler');
+        if (state.useStockCooler) {
+            scBtn.classList.add('active'); 
+            scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: ON`;
+        } else {
+            scBtn.classList.remove('active'); 
+            scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: OFF`;
+        }
+    }
+
     ['ssd', 'hdd', 'case_fan'].forEach(cat => {
         if (data[cat]) data[cat].forEach(id => {
             const item = findItem(cat, id);
@@ -146,9 +162,22 @@ function setPlatform(platform) {
 function toggleOverclock() {
     state.isOverclocked = !state.isOverclocked;
     const btn = document.getElementById('btn-overclock');
-    if (state.isOverclocked) { btn.classList.add('active'); btn.innerHTML = `Overclock: ON`; } 
-    else { btn.classList.remove('active'); btn.innerHTML = `Overclock: OFF`; }
+    if (state.isOverclocked) { btn.classList.add('active'); btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Overclock: ON`; } 
+    else { btn.classList.remove('active'); btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Overclock: OFF`; }
     updateMetrics();
+}
+
+function toggleStockCooler() {
+    state.useStockCooler = !state.useStockCooler;
+    const btn = document.getElementById('btn-stock-cooler');
+    if (state.useStockCooler) { 
+        btn.classList.add('active'); 
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: ON`; 
+    } else { 
+        btn.classList.remove('active'); 
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: OFF`; 
+    }
+    renderBlueprint(); updateMetrics();
 }
 
 function checkCompatibility(catId, item) {
@@ -233,9 +262,8 @@ function renderInventory() {
                 if(item.watt) tags += `<span class="tag">${item.watt}W</span>`;
 
                 const btnText = isMulti ? (count > 0 ? `Add (+${count})` : 'Add') : (isEquipped ? 'Equipped' : 'Equip');
-                
-                // USE SAFE IMAGE URL GENERATOR
                 const finalImgSrc = getSafeImageUrl(item.imageUrl);
+                const itemLink = item.link || `https://www.tokopedia.com/search?q=${encodeURIComponent(item.name)}`;
 
                 const card = document.createElement('div');
                 card.className = 'item-card';
@@ -245,6 +273,13 @@ function renderInventory() {
                         <h4>${item.name}</h4>
                         <div class="tags">${tags}</div>
                         <p class="price-tag" data-usd="${item.priceUsd}">${formatPrice(item.priceUsd)}</p>
+                        
+                        <div style="margin-top: 6px;">
+                            <a href="${itemLink}" target="_blank" class="btn-tokopedia" onclick="event.stopPropagation();">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+                                Beli di Tokopedia
+                            </a>
+                        </div>
                     </div>
                     <button class="btn-equip ${isEquipped ? 'equipped' : ''}" onclick="window.equipItem('${cat.id}', '${item.id}')">${btnText}</button>
                 `;
@@ -287,8 +322,23 @@ function renderBlueprint() {
             }
         } else {
             const item = state.loadout[cat.id];
-            if (!item) innerHtml = `<div class="slot-empty">Awaiting hardware...</div>`;
-            else {
+            
+            // SPECIAL RENDER: Stock Cooler Override
+            if (cat.id === 'cooler' && state.useStockCooler) {
+                let brandText = state.platform === 'INTEL' ? 'Intel' : (state.platform === 'AMD' ? 'AMD' : 'Generic');
+                innerHtml = `
+                    <div class="slot-item-row">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="width: 36px; height: 36px; border-radius: 6px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg>
+                            </div>
+                            <span class="slot-item-name">${brandText} Stock Cooler (In-Box)</span>
+                        </div>
+                    </div>
+                `;
+            } else if (!item) {
+                innerHtml = `<div class="slot-empty">Awaiting hardware...</div>`;
+            } else {
                 let modifier = '';
                 if (cat.id === 'ram') {
                     modifier = `<div class="ram-controls"><button class="ram-btn" onclick="window.changeRamQty(-1)">-</button><span style="font-size:0.85rem; font-weight:600;">${state.ramQuantity}x</span><button class="ram-btn" onclick="window.changeRamQty(1)">+</button></div>`;
@@ -312,6 +362,12 @@ function renderBlueprint() {
 
 window.equipItem = function(categoryId, itemId) {
     const item = {...db.items[categoryId].find(i => i.id === itemId)};
+    
+    // Automatically turn off "Stock Cooler" if they intentionally equip an aftermarket cooler
+    if (categoryId === 'cooler' && state.useStockCooler) {
+        toggleStockCooler();
+    }
+
     if (MULTI_SLOT_CATEGORIES.includes(categoryId)) {
         item.instanceId = Date.now().toString() + Math.random().toString(); state.loadout[categoryId].push(item);
     } else {
@@ -369,6 +425,9 @@ function updateMetrics() {
     const ocPerfMult = state.isOverclocked ? 1.08 : 1.0;
 
     Object.keys(state.loadout).forEach(key => {
+        // Skip aftermarket cooler logic if Stock Cooler is turned on
+        if (key === 'cooler' && state.useStockCooler) return; 
+
         if (MULTI_SLOT_CATEGORIES.includes(key)) {
             state.loadout[key].forEach(item => { totalUsd += item.priceUsd; sysWattage += (item.watt || 0); });
         } else {
@@ -383,6 +442,10 @@ function updateMetrics() {
             }
         }
     });
+
+    if (state.useStockCooler) {
+        sysWattage += 5; // Stock cooler fan draws around 5W
+    }
 
     if (cpu && gpu && ram) {
         let ramBonus = (state.ramQuantity >= 2) ? 1.0 : 0.85;
@@ -406,13 +469,15 @@ function updateMetrics() {
     const tStatus = document.getElementById('thermal-status');
     const tReadout = document.getElementById('thermal-readout');
     if(tStatus && tReadout) {
-        if (cpu && cooler) {
+        let activeCooler = state.useStockCooler ? { tdp_max: 65 } : cooler;
+
+        if (cpu && activeCooler) {
             let currentCpuWatt = Math.round(cpu.watt * ocWattMult);
-            const headroom = cooler.tdp_max - currentCpuWatt;
+            const headroom = activeCooler.tdp_max - currentCpuWatt;
             if (headroom < -10) { tReadout.innerText = `${headroom}W Deficit`; tStatus.innerText = "Thermal Throttling"; updateDot('thermal-dot', 'danger'); } 
             else if (headroom < 30) { tReadout.innerText = `${headroom}W Clearance`; tStatus.innerText = "Warm / Loud Fans"; updateDot('thermal-dot', 'warn'); } 
             else { tReadout.innerText = `+${headroom}W Headroom`; tStatus.innerText = "Excellent Cooling"; updateDot('thermal-dot', 'ok'); }
-        } else if (cpu && !cooler) { tReadout.innerText = "Overheating Risk"; tStatus.innerText = "No Cooler"; updateDot('thermal-dot', 'danger'); } 
+        } else if (cpu && !activeCooler) { tReadout.innerText = "Overheating Risk"; tStatus.innerText = "No Cooler"; updateDot('thermal-dot', 'danger'); } 
         else { tReadout.innerText = "N/A"; tStatus.innerText = "Awaiting CPU/Cooler"; updateDot('thermal-dot', ''); }
     }
 
