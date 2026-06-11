@@ -53,7 +53,7 @@ function setupEventListeners() {
     document.querySelectorAll('.btn-platform').forEach(btn => btn.addEventListener('click', (e) => setPlatform(e.target.dataset.platform)));
     
     document.getElementById('btn-overclock').addEventListener('click', toggleOverclock);
-    document.getElementById('btn-stock-cooler').addEventListener('click', toggleStockCooler); // NEW EVENT LISTENER
+    document.getElementById('btn-stock-cooler').addEventListener('click', toggleStockCooler);
     
     document.getElementById('btn-open-sync').addEventListener('click', () => document.getElementById('sync-modal').classList.remove('hidden'));
     document.getElementById('btn-close-sync').addEventListener('click', () => document.getElementById('sync-modal').classList.add('hidden'));
@@ -297,6 +297,8 @@ function renderBlueprint() {
     if (!container) return;
     container.innerHTML = '';
 
+    const tkpdSvg = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>`;
+
     db.categories.forEach(cat => {
         const slot = document.createElement('div');
         slot.className = 'loadout-slot';
@@ -309,13 +311,18 @@ function renderBlueprint() {
             else {
                 arr.forEach(item => {
                     const finalImgSrc = getSafeImageUrl(item.imageUrl);
+                    const itemLink = item.link || `https://www.tokopedia.com/search?q=${encodeURIComponent(item.name)}`;
+                    
                     innerHtml += `
                         <div class="slot-item-row">
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <img src="${finalImgSrc}" style="width: 36px; height: 36px; border-radius: 6px; object-fit: contain; background: rgba(255,255,255,0.05);" onerror="this.onerror=null; this.src='${imgFallback}'">
                                 <span class="slot-item-name">${item.name}</span>
                             </div>
-                            <button class="btn-remove" onclick="window.removeMultiItem('${cat.id}', '${item.instanceId}')">Remove</button>
+                            <div class="slot-actions">
+                                <a href="${itemLink}" target="_blank" class="btn-tokopedia-mini" title="Beli di Tokopedia">${tkpdSvg}</a>
+                                <button class="btn-remove" onclick="window.removeMultiItem('${cat.id}', '${item.instanceId}')">Remove</button>
+                            </div>
                         </div>
                     `;
                 });
@@ -323,7 +330,6 @@ function renderBlueprint() {
         } else {
             const item = state.loadout[cat.id];
             
-            // SPECIAL RENDER: Stock Cooler Override
             if (cat.id === 'cooler' && state.useStockCooler) {
                 let brandText = state.platform === 'INTEL' ? 'Intel' : (state.platform === 'AMD' ? 'AMD' : 'Generic');
                 innerHtml = `
@@ -344,13 +350,18 @@ function renderBlueprint() {
                     modifier = `<div class="ram-controls"><button class="ram-btn" onclick="window.changeRamQty(-1)">-</button><span style="font-size:0.85rem; font-weight:600;">${state.ramQuantity}x</span><button class="ram-btn" onclick="window.changeRamQty(1)">+</button></div>`;
                 }
                 const finalImgSrc = getSafeImageUrl(item.imageUrl);
+                const itemLink = item.link || `https://www.tokopedia.com/search?q=${encodeURIComponent(item.name)}`;
+
                 innerHtml = `
                     <div class="slot-item-row">
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <img src="${finalImgSrc}" style="width: 36px; height: 36px; border-radius: 6px; object-fit: contain; background: rgba(255,255,255,0.05);" onerror="this.onerror=null; this.src='${imgFallback}'">
                             <span class="slot-item-name">${item.name} ${modifier}</span>
                         </div>
-                        <button class="btn-remove" onclick="window.removeSingleItem('${cat.id}')">Remove</button>
+                        <div class="slot-actions">
+                            <a href="${itemLink}" target="_blank" class="btn-tokopedia-mini" title="Beli di Tokopedia">${tkpdSvg}</a>
+                            <button class="btn-remove" onclick="window.removeSingleItem('${cat.id}')">Remove</button>
+                        </div>
                     </div>
                 `;
             }
