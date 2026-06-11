@@ -236,3 +236,27 @@ body {
     width: 14px;
     height: 14px;
 }
+
+/* --- MINI TOKOPEDIA BUTTON FOR BLUEPRINT --- */
+.slot-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.btn-tokopedia-mini {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #00AA5B;
+    color: #ffffff;
+    text-decoration: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    transition: var(--transition-smooth);
+}
+.btn-tokopedia-mini:hover {
+    background: #008f4c;
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(0, 170, 91, 0.3);
+}
