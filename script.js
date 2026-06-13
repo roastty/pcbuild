@@ -1,6 +1,6 @@
 /**
  * PC Architect Simulator Engine
- * Features: Dark Theme, Sliding Drawer, Cloud Sync, Tokopedia Links, Stock Cooler, Overclocking
+ * Features: Dark Theme, Sliding Drawer, Cloud Sync, Tokopedia Links, Stock Cooler, Overclocking, Smart Wrap
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
@@ -21,7 +21,8 @@ let db = { categories: [], items: {} };
 
 const state = {
     currency: 'USD', exchangeRate: 17989.10, searchQuery: '', platform: null, 
-    requiredSocket: null, requiredRamType: null, ramQuantity: 2, 
+    requiredSocket: null, requiredRamType: null, 
+    ramQuantity: 1, // SET DEFAULT TO 1x
     isOverclocked: false, useStockCooler: false, filters: {},
     activeCategory: null,
     loadout: { cpu: null, cooler: null, mobo: null, ram: null, gpu: null, ssd: [], hdd: [], case_fan: [], psu: null }
@@ -44,15 +45,8 @@ const ICONS = {
 };
 
 const SHORT_NAMES = {
-    cpu: "PROCESSOR",
-    cooler: "COOLER",
-    mobo: "MOTHERBOARD",
-    ram: "MEMORY",
-    gpu: "GRAPHICS",
-    ssd: "SSD",
-    hdd: "HDD",
-    case_fan: "FAN",
-    psu: "POWER"
+    cpu: "PROCESSOR", cooler: "COOLER", mobo: "MOTHERBOARD", ram: "MEMORY",
+    gpu: "GRAPHICS", ssd: "SSD", hdd: "HDD", case_fan: "FAN", psu: "POWER"
 };
 
 function getSafeImageUrl(url) {
@@ -67,25 +61,11 @@ async function init() {
         const response = await fetch('data.json');
         if (!response.ok) throw new Error("Data.json not found");
         db = await response.json();
-        db.categories.forEach(cat => state.filters[cat.id] = { brand: 'All', sort: 'default' });
-        setupEventListeners(); 
-        renderSidebar(); 
-        renderBlueprint(); 
-        updateMetrics();
     } catch (error) {
-        console.error("Data load failed. You are likely running this on file:/// instead of a local server.", error);
-        
-        // Show an error on the sidebar instead of leaving it blank!
-        const nav = document.getElementById('sidebar-nav');
-        if(nav) {
-            nav.innerHTML = `
-                <div style="color: var(--accent-red); font-size: 0.75rem; text-align: center; padding: 1rem; font-weight: bold;">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:8px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                    <br>DATA BLOCKED
-                    <br><br><span style="color: var(--text-muted); font-weight: normal;">Please use a Local Server or upload to GitHub.</span>
-                </div>`;
-        }
+        console.warn("Failed to load data.json.");
     }
+    db.categories.forEach(cat => state.filters[cat.id] = { brand: 'All', sort: 'default' });
+    setupEventListeners(); renderSidebar(); renderBlueprint(); updateMetrics();
 }
 
 function initTheme() {
@@ -212,6 +192,17 @@ function renderInventoryList() {
         if(item.type) tags += `<span class="tag">${item.type}</span>`;
         if(item.watt) tags += `<span class="tag">${item.watt}W</span>`;
 
+        // EXTRACT RAM QUANTITY FOR NEW CLEAN LAYOUT
+        let displayName = item.name;
+        let ramQtyHtml = '';
+        if (catId === 'ram') {
+            const qtyMatch = displayName.match(/\s*\(([\dxX]+[gG][bB])\)$/i);
+            if (qtyMatch) {
+                ramQtyHtml = `<div class="ram-qty-label">KIT: ${qtyMatch[1].toUpperCase()}</div>`;
+                displayName = displayName.replace(qtyMatch[0], ''); // Strip it from main title
+            }
+        }
+
         const btnText = isMulti ? (count > 0 ? `Add (+${count})` : 'Add') : (isEquipped ? 'Equipped' : 'Equip');
         const finalImgSrc = getSafeImageUrl(item.imageUrl);
         const itemLink = item.link || `https://www.tokopedia.com/search?q=${encodeURIComponent(item.name)}`;
@@ -219,13 +210,15 @@ function renderInventoryList() {
         const card = document.createElement('div');
         card.className = 'item-card';
         card.innerHTML = `
-            <img class="item-img" src="${finalImgSrc}" alt="${item.name}" loading="lazy" onerror="this.onerror=null; this.src='${imgFallback}'">
+            <img class="item-img" src="${finalImgSrc}" alt="${displayName}" loading="lazy" onerror="this.onerror=null; this.src='${imgFallback}'">
             <div class="item-info">
-                <h4 title="${item.name}">${item.name}</h4>
+                <div class="item-brand">${item.brand || 'Generic'}</div>
+                <h4 title="${displayName}">${displayName}</h4>
                 <div class="tags">${tags}</div>
+                ${ramQtyHtml}
                 <p class="price-tag" data-usd="${item.priceUsd}">${formatPrice(item.priceUsd)}</p>
             </div>
-            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end; justify-content:center;">
                 <button class="btn-equip ${isEquipped ? 'equipped' : ''}" onclick="window.equipItem('${catId}', '${item.id}')">${btnText}</button>
                 <a href="${itemLink}" target="_blank" class="btn-tokopedia-mini" style="display: inline-flex; align-items: center; justify-content: center; background: #00AA5B; color: #ffffff; text-decoration: none; width: 30px; height: 30px; border-radius: 8px;" title="Lihat di Tokopedia">${tkpdSvg}</a>
             </div>
@@ -523,105 +516,11 @@ function updateMetrics() {
     }
 }
 
-// Serialization and Cloud Methods
-function serializeLoadout() {
-    return {
-        cpu: state.loadout.cpu?.id || null, cooler: state.loadout.cooler?.id || null,
-        mobo: state.loadout.mobo?.id || null, ram: state.loadout.ram?.id || null,
-        ramQuantity: state.ramQuantity, gpu: state.loadout.gpu?.id || null, psu: state.loadout.psu?.id || null,
-        ssd: state.loadout.ssd.map(i => i.id), hdd: state.loadout.hdd.map(i => i.id),
-        case_fan: state.loadout.case_fan.map(i => i.id), 
-        isOverclocked: state.isOverclocked, useStockCooler: state.useStockCooler
-    };
-}
-
-function deserializeLoadout(data) {
-    state.loadout = { cpu: null, cooler: null, mobo: null, ram: null, gpu: null, ssd: [], hdd: [], case_fan: [], psu: null };
-    const findItem = (cat, id) => db.items[cat]?.find(i => i.id === id) || null;
-
-    if (data.cpu) state.loadout.cpu = findItem('cpu', data.cpu);
-    if (data.cooler) state.loadout.cooler = findItem('cooler', data.cooler);
-    if (data.mobo) state.loadout.mobo = findItem('mobo', data.mobo);
-    if (data.ram) state.loadout.ram = findItem('ram', data.ram);
-    if (data.ramQuantity) state.ramQuantity = data.ramQuantity;
-    if (data.gpu) state.loadout.gpu = findItem('gpu', data.gpu);
-    if (data.psu) state.loadout.psu = findItem('psu', data.psu);
-    
-    if (data.isOverclocked !== undefined) {
-        state.isOverclocked = data.isOverclocked;
-        const ocBtn = document.getElementById('btn-overclock');
-        if (state.isOverclocked) ocBtn.classList.add('active'); else ocBtn.classList.remove('active');
-    }
-
-    if (data.useStockCooler !== undefined) {
-        state.useStockCooler = data.useStockCooler;
-        const scBtn = document.getElementById('btn-stock-cooler');
-        if (state.useStockCooler) {
-            scBtn.classList.add('active'); 
-            scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: ON`;
-        } else {
-            scBtn.classList.remove('active'); 
-            scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: OFF`;
-        }
-    }
-
-    ['ssd', 'hdd', 'case_fan'].forEach(cat => {
-        if (data[cat]) data[cat].forEach(id => {
-            const item = findItem(cat, id);
-            if (item) state.loadout[cat].push({ ...item, instanceId: Date.now().toString() + Math.random().toString() });
-        });
-    });
-
-    if (state.loadout.cpu) {
-        state.platform = state.loadout.cpu.brand; state.requiredSocket = state.loadout.cpu.socket;
-    } else { state.platform = null; state.requiredSocket = null; }
-    
-    state.requiredRamType = state.loadout.mobo ? state.loadout.mobo.type : null;
-    closeDrawer(); renderBlueprint(); updateMetrics();
-}
-
-async function saveToCloud() {
-    if (!dbFirestore) return;
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase(); 
-    const btn = document.getElementById('btn-cloud-save'); btn.innerText = "Saving..."; btn.disabled = true;
-    try {
-        await setDoc(doc(dbFirestore, "builds", code), serializeLoadout());
-        document.getElementById('cloud-code-display').classList.remove('hidden');
-        document.getElementById('generated-code').innerText = code;
-    } catch (e) { alert("Failed to save."); } finally { btn.innerText = "Generate Code"; btn.disabled = false; }
-}
-
-async function loadFromCloud() {
-    if (!dbFirestore) return;
-    const codeInput = document.getElementById('input-cloud-code').value.toUpperCase().trim();
-    if (codeInput.length !== 6) return;
-    const btn = document.getElementById('btn-cloud-load'); btn.innerText = "Loading..."; btn.disabled = true;
-    try {
-        const docSnap = await getDoc(doc(dbFirestore, "builds", codeInput));
-        if (docSnap.exists()) deserializeLoadout(docSnap.data()); else alert("Code not found!");
-    } catch (e) { alert("Failed to load."); } finally { btn.innerText = "Load"; btn.disabled = false; }
-}
-
-function downloadLocal() {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(serializeLoadout()));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", "pc_build.json");
-    document.body.appendChild(downloadAnchorNode); 
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-}
-
-function uploadLocal(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        try { deserializeLoadout(JSON.parse(e.target.result)); } 
-        catch(err) { alert("Invalid JSON file."); }
-    }
-    reader.readAsText(file);
-    event.target.value = '';
-}
+function serializeLoadout() { /* unchanged */ return { cpu: state.loadout.cpu?.id || null, cooler: state.loadout.cooler?.id || null, mobo: state.loadout.mobo?.id || null, ram: state.loadout.ram?.id || null, ramQuantity: state.ramQuantity, gpu: state.loadout.gpu?.id || null, psu: state.loadout.psu?.id || null, ssd: state.loadout.ssd.map(i => i.id), hdd: state.loadout.hdd.map(i => i.id), case_fan: state.loadout.case_fan.map(i => i.id), isOverclocked: state.isOverclocked, useStockCooler: state.useStockCooler }; }
+function deserializeLoadout(data) { /* unchanged */ state.loadout = { cpu: null, cooler: null, mobo: null, ram: null, gpu: null, ssd: [], hdd: [], case_fan: [], psu: null }; const findItem = (cat, id) => db.items[cat]?.find(i => i.id === id) || null; if (data.cpu) state.loadout.cpu = findItem('cpu', data.cpu); if (data.cooler) state.loadout.cooler = findItem('cooler', data.cooler); if (data.mobo) state.loadout.mobo = findItem('mobo', data.mobo); if (data.ram) state.loadout.ram = findItem('ram', data.ram); if (data.ramQuantity) state.ramQuantity = data.ramQuantity; if (data.gpu) state.loadout.gpu = findItem('gpu', data.gpu); if (data.psu) state.loadout.psu = findItem('psu', data.psu); if (data.isOverclocked !== undefined) { state.isOverclocked = data.isOverclocked; const ocBtn = document.getElementById('btn-overclock'); if (state.isOverclocked) ocBtn.classList.add('active'); else ocBtn.classList.remove('active'); } if (data.useStockCooler !== undefined) { state.useStockCooler = data.useStockCooler; const scBtn = document.getElementById('btn-stock-cooler'); if (state.useStockCooler) { scBtn.classList.add('active'); scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: ON`; } else { scBtn.classList.remove('active'); scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: OFF`; } } ['ssd', 'hdd', 'case_fan'].forEach(cat => { if (data[cat]) data[cat].forEach(id => { const item = findItem(cat, id); if (item) state.loadout[cat].push({ ...item, instanceId: Date.now().toString() + Math.random().toString() }); }); }); if (state.loadout.cpu) { state.platform = state.loadout.cpu.brand; state.requiredSocket = state.loadout.cpu.socket; } else { state.platform = null; state.requiredSocket = null; } state.requiredRamType = state.loadout.mobo ? state.loadout.mobo.type : null; closeDrawer(); renderBlueprint(); updateMetrics(); }
+async function saveToCloud() { /* unchanged */ if (!dbFirestore) return; const code = Math.random().toString(36).substring(2, 8).toUpperCase(); const btn = document.getElementById('btn-cloud-save'); btn.innerText = "Saving..."; btn.disabled = true; try { await setDoc(doc(dbFirestore, "builds", code), serializeLoadout()); document.getElementById('cloud-code-display').classList.remove('hidden'); document.getElementById('generated-code').innerText = code; } catch (e) { alert("Failed to save."); } finally { btn.innerText = "Generate Code"; btn.disabled = false; } }
+async function loadFromCloud() { /* unchanged */ if (!dbFirestore) return; const codeInput = document.getElementById('input-cloud-code').value.toUpperCase().trim(); if (codeInput.length !== 6) return; const btn = document.getElementById('btn-cloud-load'); btn.innerText = "Loading..."; btn.disabled = true; try { const docSnap = await getDoc(doc(dbFirestore, "builds", codeInput)); if (docSnap.exists()) deserializeLoadout(docSnap.data()); else alert("Code not found!"); } catch (e) { alert("Failed to load."); } finally { btn.innerText = "Load"; btn.disabled = false; } }
+function downloadLocal() { /* unchanged */ const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(serializeLoadout())); const downloadAnchorNode = document.createElement('a'); downloadAnchorNode.setAttribute("href", dataStr); downloadAnchorNode.setAttribute("download", "pc_build.json"); document.body.appendChild(downloadAnchorNode); downloadAnchorNode.click(); downloadAnchorNode.remove(); }
+function uploadLocal(event) { /* unchanged */ const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = function(e) { try { deserializeLoadout(JSON.parse(e.target.result)); } catch(err) { alert("Invalid JSON file."); } }; reader.readAsText(file); event.target.value = ''; }
 
 document.addEventListener('DOMContentLoaded', init);
