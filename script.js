@@ -1,6 +1,6 @@
 /**
  * PC Architect Simulator Engine
- * Features: Dark Theme, Sliding Drawer, Cloud Sync, Tokopedia Links, Stock Cooler, Overclocking, Smart Wrap
+ * Features: Dark Theme, Sliding Drawer, Cloud Sync, Tokopedia Links, Stock Cooler, Overclocking, Smart Wrap, Budgeting, Case Price
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
@@ -20,11 +20,12 @@ try {
 let db = { categories: [], items: {} };
 
 const state = {
-    currency: 'USD', exchangeRate: 17989.10, searchQuery: '', platform: null, 
-    requiredSocket: null, requiredRamType: null, 
-    ramQuantity: 1, // SET DEFAULT TO 1x
+    currency: 'IDR', exchangeRate: 17989.10, searchQuery: '', platform: null, 
+    requiredSocket: null, requiredRamType: null, ramQuantity: 1, 
     isOverclocked: false, useStockCooler: false, filters: {},
     activeCategory: null,
+    budget: 0, 
+    casePrice: 0, // NEW: Custom Case Price
     loadout: { cpu: null, cooler: null, mobo: null, ram: null, gpu: null, ssd: [], hdd: [], case_fan: [], psu: null }
 };
 
@@ -99,10 +100,42 @@ function setupEventListeners() {
     document.getElementById('btn-overclock').addEventListener('click', toggleOverclock);
     document.getElementById('btn-stock-cooler').addEventListener('click', toggleStockCooler);
     
+    // Cloud Modal
     document.getElementById('btn-open-sync').addEventListener('click', () => document.getElementById('sync-modal').classList.remove('hidden'));
     document.getElementById('btn-close-sync').addEventListener('click', () => document.getElementById('sync-modal').classList.add('hidden'));
     document.getElementById('btn-cloud-save').addEventListener('click', saveToCloud);
     document.getElementById('btn-cloud-load').addEventListener('click', loadFromCloud);
+    document.getElementById('btn-local-download').addEventListener('click', downloadLocal);
+    document.getElementById('btn-local-upload').addEventListener('click', () => document.getElementById('file-upload-input').click());
+    document.getElementById('file-upload-input').addEventListener('change', uploadLocal);
+
+    // Budget Modal
+    document.getElementById('btn-close-budget').addEventListener('click', () => document.getElementById('budget-modal').classList.add('hidden'));
+    document.getElementById('btn-save-budget').addEventListener('click', saveBudget);
+    document.getElementById('btn-clear-budget').addEventListener('click', () => { 
+        state.budget = 0; 
+        document.getElementById('budget-modal').classList.add('hidden'); 
+        updateMetrics(); 
+    });
+
+    // Case Price Modal
+    document.getElementById('btn-case-price').addEventListener('click', openCaseModal);
+    document.getElementById('btn-close-case').addEventListener('click', () => document.getElementById('case-modal').classList.add('hidden'));
+    document.getElementById('btn-save-case').addEventListener('click', saveCasePrice);
+    document.getElementById('btn-clear-case').addEventListener('click', () => { 
+        state.casePrice = 0; 
+        document.getElementById('case-modal').classList.add('hidden'); 
+        updateMetrics(); 
+    });
+
+    // Auto-Format Inputs for Budget and Case Price
+    const formatInput = function(e) {
+        let value = this.value.replace(/\D/g, ''); 
+        if (!value) { this.value = ''; return; }
+        this.value = parseInt(value, 10).toLocaleString(state.currency === 'IDR' ? 'id-ID' : 'en-US');
+    };
+    document.getElementById('input-budget').addEventListener('input', formatInput);
+    document.getElementById('input-case').addEventListener('input', formatInput);
 }
 
 function renderSidebar() {
@@ -116,7 +149,70 @@ function renderSidebar() {
         btn.onclick = () => openDrawer(cat.id);
         nav.appendChild(btn);
     });
+
+    const budgetBtn = document.createElement('button');
+    budgetBtn.className = 'nav-item';
+    budgetBtn.id = `nav-budget`;
+    budgetBtn.style.marginTop = 'auto'; 
+    budgetBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg> <span>BUDGET</span>`;
+    budgetBtn.onclick = () => openBudgetModal();
+    nav.appendChild(budgetBtn);
 }
+
+// --- BUDGET LOGIC ---
+function openBudgetModal() {
+    document.getElementById('budget-modal').classList.remove('hidden');
+    document.getElementById('budget-currency-label').innerText = state.currency === 'IDR' ? 'Rp' : '$';
+    
+    const input = document.getElementById('input-budget');
+    if (state.budget > 0) {
+        let val = state.currency === 'IDR' ? Math.round(state.budget * state.exchangeRate) : Math.round(state.budget);
+        input.value = val.toLocaleString(state.currency === 'IDR' ? 'id-ID' : 'en-US');
+    } else {
+        input.value = '';
+    }
+}
+
+function saveBudget() {
+    let rawStr = document.getElementById('input-budget').value.replace(/\D/g, '');
+    const val = parseFloat(rawStr);
+    
+    if (isNaN(val) || val <= 0) {
+        state.budget = 0;
+    } else {
+        state.budget = state.currency === 'IDR' ? val / state.exchangeRate : val;
+    }
+    document.getElementById('budget-modal').classList.add('hidden');
+    updateMetrics();
+}
+
+// --- CASE PRICE LOGIC ---
+function openCaseModal() {
+    document.getElementById('case-modal').classList.remove('hidden');
+    document.getElementById('case-currency-label').innerText = state.currency === 'IDR' ? 'Rp' : '$';
+    
+    const input = document.getElementById('input-case');
+    if (state.casePrice > 0) {
+        let val = state.currency === 'IDR' ? Math.round(state.casePrice * state.exchangeRate) : Math.round(state.casePrice);
+        input.value = val.toLocaleString(state.currency === 'IDR' ? 'id-ID' : 'en-US');
+    } else {
+        input.value = '';
+    }
+}
+
+function saveCasePrice() {
+    let rawStr = document.getElementById('input-case').value.replace(/\D/g, '');
+    const val = parseFloat(rawStr);
+    
+    if (isNaN(val) || val < 0) {
+        state.casePrice = 0;
+    } else {
+        state.casePrice = state.currency === 'IDR' ? val / state.exchangeRate : val;
+    }
+    document.getElementById('case-modal').classList.add('hidden');
+    updateMetrics();
+}
+
 
 function openDrawer(catId) {
     state.activeCategory = catId;
@@ -192,14 +288,13 @@ function renderInventoryList() {
         if(item.type) tags += `<span class="tag">${item.type}</span>`;
         if(item.watt) tags += `<span class="tag">${item.watt}W</span>`;
 
-        // EXTRACT RAM QUANTITY FOR NEW CLEAN LAYOUT
         let displayName = item.name;
         let ramQtyHtml = '';
         if (catId === 'ram') {
             const qtyMatch = displayName.match(/\s*\(([\dxX]+[gG][bB])\)$/i);
             if (qtyMatch) {
                 ramQtyHtml = `<div class="ram-qty-label">KIT: ${qtyMatch[1].toUpperCase()}</div>`;
-                displayName = displayName.replace(qtyMatch[0], ''); // Strip it from main title
+                displayName = displayName.replace(qtyMatch[0], ''); 
             }
         }
 
@@ -381,6 +476,20 @@ function toggleCurrency() {
     state.currency = state.currency === 'USD' ? 'IDR' : 'USD';
     document.getElementById('currency-toggle').innerText = state.currency === 'USD' ? 'USD ($)' : 'IDR (Rp.)';
     document.querySelectorAll('.price-tag').forEach(tag => { tag.innerText = formatPrice(parseFloat(tag.getAttribute('data-usd'))); });
+    
+    // Convert logic for inputs so they update visually
+    const budgetInput = document.getElementById('input-budget');
+    if(state.budget > 0) {
+        let val = state.currency === 'IDR' ? Math.round(state.budget * state.exchangeRate) : Math.round(state.budget);
+        budgetInput.value = val.toLocaleString(state.currency === 'IDR' ? 'id-ID' : 'en-US');
+    }
+    
+    const caseInput = document.getElementById('input-case');
+    if(state.casePrice > 0) {
+        let val = state.currency === 'IDR' ? Math.round(state.casePrice * state.exchangeRate) : Math.round(state.casePrice);
+        caseInput.value = val.toLocaleString(state.currency === 'IDR' ? 'id-ID' : 'en-US');
+    }
+    
     updateMetrics();
 }
 
@@ -447,6 +556,22 @@ function updateMetrics() {
     });
 
     if (state.useStockCooler) sysWattage += 5;
+    
+    // Add custom case price to total
+    totalUsd += state.casePrice;
+
+    // Update Case Price Button Text visually
+    const caseBtn = document.getElementById('btn-case-price');
+    if(caseBtn) {
+        const icon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>`;
+        if (state.casePrice > 0) {
+            caseBtn.classList.add('active');
+            caseBtn.innerHTML = `${icon} Case: ${formatPrice(state.casePrice)}`;
+        } else {
+            caseBtn.classList.remove('active');
+            caseBtn.innerHTML = `${icon} Add Case Price`;
+        }
+    }
 
     if (cpu && gpu && ram) {
         let ramBonus = (state.ramQuantity >= 2) ? 1.0 : 0.85;
@@ -487,6 +612,21 @@ function updateMetrics() {
     const psuMax = psu ? psu.watt : 0;
     if(pReadout) pReadout.innerText = `${sysWattage} / ${psuMax} W`;
 
+    // --- BUDGET LOGIC ---
+    const totalPriceEl = document.getElementById('total-price');
+    const budgetWarning = document.getElementById('budget-warning');
+
+    if (totalPriceEl) {
+        totalPriceEl.innerText = formatPrice(totalUsd);
+        if (state.budget > 0 && totalUsd > state.budget) {
+            totalPriceEl.style.color = 'var(--accent-red)';
+            if(budgetWarning) budgetWarning.style.display = 'block';
+        } else {
+            totalPriceEl.style.color = 'var(--text-main)';
+            if(budgetWarning) budgetWarning.style.display = 'none';
+        }
+    }
+
     if(pStatus) {
         if (!psu && sysWattage > 50) { pStatus.innerText = "Awaiting PSU"; updateDot('psu-dot', 'warn'); } 
         else if (psu) {
@@ -495,9 +635,6 @@ function updateMetrics() {
             else { pStatus.innerText = "Sufficient"; updateDot('psu-dot', 'ok'); }
         } else { pStatus.innerText = "Awaiting Hardware"; updateDot('psu-dot', ''); }
     }
-
-    const totalPriceEl = document.getElementById('total-price');
-    if(totalPriceEl) totalPriceEl.innerText = formatPrice(totalUsd);
     
     const gamingBarEl = document.getElementById('gaming-bar');
     if(gamingBarEl) gamingBarEl.style.width = `${(gameScore/1000)*100}%`;
@@ -516,11 +653,108 @@ function updateMetrics() {
     }
 }
 
-function serializeLoadout() { /* unchanged */ return { cpu: state.loadout.cpu?.id || null, cooler: state.loadout.cooler?.id || null, mobo: state.loadout.mobo?.id || null, ram: state.loadout.ram?.id || null, ramQuantity: state.ramQuantity, gpu: state.loadout.gpu?.id || null, psu: state.loadout.psu?.id || null, ssd: state.loadout.ssd.map(i => i.id), hdd: state.loadout.hdd.map(i => i.id), case_fan: state.loadout.case_fan.map(i => i.id), isOverclocked: state.isOverclocked, useStockCooler: state.useStockCooler }; }
-function deserializeLoadout(data) { /* unchanged */ state.loadout = { cpu: null, cooler: null, mobo: null, ram: null, gpu: null, ssd: [], hdd: [], case_fan: [], psu: null }; const findItem = (cat, id) => db.items[cat]?.find(i => i.id === id) || null; if (data.cpu) state.loadout.cpu = findItem('cpu', data.cpu); if (data.cooler) state.loadout.cooler = findItem('cooler', data.cooler); if (data.mobo) state.loadout.mobo = findItem('mobo', data.mobo); if (data.ram) state.loadout.ram = findItem('ram', data.ram); if (data.ramQuantity) state.ramQuantity = data.ramQuantity; if (data.gpu) state.loadout.gpu = findItem('gpu', data.gpu); if (data.psu) state.loadout.psu = findItem('psu', data.psu); if (data.isOverclocked !== undefined) { state.isOverclocked = data.isOverclocked; const ocBtn = document.getElementById('btn-overclock'); if (state.isOverclocked) ocBtn.classList.add('active'); else ocBtn.classList.remove('active'); } if (data.useStockCooler !== undefined) { state.useStockCooler = data.useStockCooler; const scBtn = document.getElementById('btn-stock-cooler'); if (state.useStockCooler) { scBtn.classList.add('active'); scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: ON`; } else { scBtn.classList.remove('active'); scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: OFF`; } } ['ssd', 'hdd', 'case_fan'].forEach(cat => { if (data[cat]) data[cat].forEach(id => { const item = findItem(cat, id); if (item) state.loadout[cat].push({ ...item, instanceId: Date.now().toString() + Math.random().toString() }); }); }); if (state.loadout.cpu) { state.platform = state.loadout.cpu.brand; state.requiredSocket = state.loadout.cpu.socket; } else { state.platform = null; state.requiredSocket = null; } state.requiredRamType = state.loadout.mobo ? state.loadout.mobo.type : null; closeDrawer(); renderBlueprint(); updateMetrics(); }
-async function saveToCloud() { /* unchanged */ if (!dbFirestore) return; const code = Math.random().toString(36).substring(2, 8).toUpperCase(); const btn = document.getElementById('btn-cloud-save'); btn.innerText = "Saving..."; btn.disabled = true; try { await setDoc(doc(dbFirestore, "builds", code), serializeLoadout()); document.getElementById('cloud-code-display').classList.remove('hidden'); document.getElementById('generated-code').innerText = code; } catch (e) { alert("Failed to save."); } finally { btn.innerText = "Generate Code"; btn.disabled = false; } }
-async function loadFromCloud() { /* unchanged */ if (!dbFirestore) return; const codeInput = document.getElementById('input-cloud-code').value.toUpperCase().trim(); if (codeInput.length !== 6) return; const btn = document.getElementById('btn-cloud-load'); btn.innerText = "Loading..."; btn.disabled = true; try { const docSnap = await getDoc(doc(dbFirestore, "builds", codeInput)); if (docSnap.exists()) deserializeLoadout(docSnap.data()); else alert("Code not found!"); } catch (e) { alert("Failed to load."); } finally { btn.innerText = "Load"; btn.disabled = false; } }
-function downloadLocal() { /* unchanged */ const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(serializeLoadout())); const downloadAnchorNode = document.createElement('a'); downloadAnchorNode.setAttribute("href", dataStr); downloadAnchorNode.setAttribute("download", "pc_build.json"); document.body.appendChild(downloadAnchorNode); downloadAnchorNode.click(); downloadAnchorNode.remove(); }
-function uploadLocal(event) { /* unchanged */ const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = function(e) { try { deserializeLoadout(JSON.parse(e.target.result)); } catch(err) { alert("Invalid JSON file."); } }; reader.readAsText(file); event.target.value = ''; }
+// Serialization and Cloud Methods
+function serializeLoadout() {
+    return {
+        cpu: state.loadout.cpu?.id || null, cooler: state.loadout.cooler?.id || null,
+        mobo: state.loadout.mobo?.id || null, ram: state.loadout.ram?.id || null,
+        ramQuantity: state.ramQuantity, gpu: state.loadout.gpu?.id || null, psu: state.loadout.psu?.id || null,
+        ssd: state.loadout.ssd.map(i => i.id), hdd: state.loadout.hdd.map(i => i.id),
+        case_fan: state.loadout.case_fan.map(i => i.id), 
+        isOverclocked: state.isOverclocked, useStockCooler: state.useStockCooler,
+        budget: state.budget, casePrice: state.casePrice
+    };
+}
+
+function deserializeLoadout(data) {
+    state.loadout = { cpu: null, cooler: null, mobo: null, ram: null, gpu: null, ssd: [], hdd: [], case_fan: [], psu: null };
+    const findItem = (cat, id) => db.items[cat]?.find(i => i.id === id) || null;
+
+    if (data.cpu) state.loadout.cpu = findItem('cpu', data.cpu);
+    if (data.cooler) state.loadout.cooler = findItem('cooler', data.cooler);
+    if (data.mobo) state.loadout.mobo = findItem('mobo', data.mobo);
+    if (data.ram) state.loadout.ram = findItem('ram', data.ram);
+    if (data.ramQuantity) state.ramQuantity = data.ramQuantity;
+    if (data.gpu) state.loadout.gpu = findItem('gpu', data.gpu);
+    if (data.psu) state.loadout.psu = findItem('psu', data.psu);
+    if (data.budget !== undefined) state.budget = data.budget;
+    if (data.casePrice !== undefined) state.casePrice = data.casePrice;
+    
+    if (data.isOverclocked !== undefined) {
+        state.isOverclocked = data.isOverclocked;
+        const ocBtn = document.getElementById('btn-overclock');
+        if (state.isOverclocked) ocBtn.classList.add('active'); else ocBtn.classList.remove('active');
+    }
+
+    if (data.useStockCooler !== undefined) {
+        state.useStockCooler = data.useStockCooler;
+        const scBtn = document.getElementById('btn-stock-cooler');
+        if (state.useStockCooler) {
+            scBtn.classList.add('active'); 
+            scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: ON`;
+        } else {
+            scBtn.classList.remove('active'); 
+            scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: OFF`;
+        }
+    }
+
+    ['ssd', 'hdd', 'case_fan'].forEach(cat => {
+        if (data[cat]) data[cat].forEach(id => {
+            const item = findItem(cat, id);
+            if (item) state.loadout[cat].push({ ...item, instanceId: Date.now().toString() + Math.random().toString() });
+        });
+    });
+
+    if (state.loadout.cpu) {
+        state.platform = state.loadout.cpu.brand; state.requiredSocket = state.loadout.cpu.socket;
+    } else { state.platform = null; state.requiredSocket = null; }
+    
+    state.requiredRamType = state.loadout.mobo ? state.loadout.mobo.type : null;
+    closeDrawer(); renderBlueprint(); updateMetrics();
+}
+
+async function saveToCloud() {
+    if (!dbFirestore) return;
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase(); 
+    const btn = document.getElementById('btn-cloud-save'); btn.innerText = "Saving..."; btn.disabled = true;
+    try {
+        await setDoc(doc(dbFirestore, "builds", code), serializeLoadout());
+        document.getElementById('cloud-code-display').classList.remove('hidden');
+        document.getElementById('generated-code').innerText = code;
+    } catch (e) { alert("Failed to save."); } finally { btn.innerText = "Generate Code"; btn.disabled = false; }
+}
+
+async function loadFromCloud() {
+    if (!dbFirestore) return;
+    const codeInput = document.getElementById('input-cloud-code').value.toUpperCase().trim();
+    if (codeInput.length !== 6) return;
+    const btn = document.getElementById('btn-cloud-load'); btn.innerText = "Loading..."; btn.disabled = true;
+    try {
+        const docSnap = await getDoc(doc(dbFirestore, "builds", codeInput));
+        if (docSnap.exists()) deserializeLoadout(docSnap.data()); else alert("Code not found!");
+    } catch (e) { alert("Failed to load."); } finally { btn.innerText = "Load"; btn.disabled = false; }
+}
+
+function downloadLocal() {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(serializeLoadout()));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", "pc_build.json");
+    document.body.appendChild(downloadAnchorNode); 
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+}
+
+function uploadLocal(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try { deserializeLoadout(JSON.parse(e.target.result)); } 
+        catch(err) { alert("Invalid JSON file."); }
+    }
+    reader.readAsText(file);
+    event.target.value = '';
+}
 
 document.addEventListener('DOMContentLoaded', init);
