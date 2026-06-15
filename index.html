@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="no-referrer">
     <title>PC Architect Pro</title>
-    <link rel="stylesheet" href="style.css?v=6.0">
+    <link rel="stylesheet" href="style.css?v=7.0">
 </head>
 <body>
     <div class="app-container">
@@ -21,9 +21,9 @@
                 </button>
                 <button id="btn-open-sync" class="btn-pill" style="margin-right: 8px;">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:-2px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                    Sync
+                    Save/Load
                 </button>
-                <button id="currency-toggle" class="btn-pill">USD ($)</button>
+                <button id="currency-toggle" class="btn-pill">IDR (Rp.)</button>
             </div>
         </header>
 
@@ -68,7 +68,11 @@
             <main class="dashboard-main glass-panel" id="blueprint-panel">
                 <div class="dashboard-header">
                     <h2>Live Telemetry</h2>
-                    <div class="header-tools-right">
+                    <div class="header-tools-right" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button id="btn-case-price" class="btn-pill oc-btn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+                            Add Case Price
+                        </button>
                         <button id="btn-stock-cooler" class="btn-pill oc-btn">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg>
                             Stock Cooler: OFF
@@ -82,8 +86,11 @@
                 
                 <div class="metrics-dashboard">
                     <div class="metric-row main-estimate">
-                        <div class="metric-title">Total Build Estimate</div>
-                        <div class="metric-value highlight" id="total-price">$0.00</div>
+                        <div>
+                            <div class="metric-title">Total Build Estimate</div>
+                            <div id="budget-warning" style="color: var(--accent-red); font-size: 0.85rem; font-weight: 700; display: none; margin-top: 4px;">⚠️ OUT OF BUDGET</div>
+                        </div>
+                        <div class="metric-value highlight" id="total-price" style="transition: color 0.3s ease;">Rp 0</div>
                     </div>
 
                     <div class="metric-box">
@@ -160,6 +167,48 @@
         </div>
     </div>
 
-    <script type="module" src="script.js?v=6.0"></script>
+    <!-- MODAL: BUDGET PLANNER -->
+    <div id="budget-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h3>Target Budget</h3>
+                <button class="btn-close" id="btn-close-budget">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="sync-desc">Enter your maximum build budget. The system will warn you if you go over it.</p>
+                <div class="load-action-group" style="align-items: center;">
+                    <span id="budget-currency-label" style="font-size: 1.2rem; font-weight: bold; margin-right: 8px;">Rp</span>
+                    <input type="text" id="input-budget" class="apple-input" placeholder="Enter amount (0 to clear limit)">
+                </div>
+                <div class="sync-actions" style="margin-top: 15px;">
+                    <button id="btn-save-budget" class="btn-action primary">Save Target</button>
+                    <button id="btn-clear-budget" class="btn-action outline">Clear Limit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: CASE PRICE -->
+    <div id="case-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <h3>Custom Case Price</h3>
+                <button class="btn-close" id="btn-close-case">✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="sync-desc">Case design is highly subjective! Find your favorite case online and enter its price here to include it in your total estimate.</p>
+                <div class="load-action-group" style="align-items: center;">
+                    <span id="case-currency-label" style="font-size: 1.2rem; font-weight: bold; margin-right: 8px;">Rp</span>
+                    <input type="text" id="input-case" class="apple-input" placeholder="Enter case price (0 to clear)">
+                </div>
+                <div class="sync-actions" style="margin-top: 15px;">
+                    <button id="btn-save-case" class="btn-action primary">Save Price</button>
+                    <button id="btn-clear-case" class="btn-action outline">Clear</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="script.js?v=9.0"></script>
 </body>
 </html>
