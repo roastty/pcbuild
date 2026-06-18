@@ -1,6 +1,6 @@
 /**
  * PC Architect Simulator Engine
- * Features: Smart Drag Scrolling, Expanding Scrollbars, Auto-Format, Red Alerts, AI Modal
+ * Features: Smart Drag Scrolling, Localization (ID default), Platform & Socket Filtering, Inline Details, Auto-Equip cards
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
@@ -20,11 +20,85 @@ try {
 let db = { categories: [], items: {} };
 
 const state = {
-    currency: 'IDR', exchangeRate: 17989.10, searchQuery: '', platform: null, 
+    lang: 'ID',
+    currency: 'IDR', exchangeRate: 16100.10, searchQuery: '', platform: null, socketFilter: null,
     isOverclocked: false, useStockCooler: false, filters: {},
     activeCategory: null, budget: 0, casePrice: 0, 
-    loadout: { cpu: null, cooler: null, mobo: null, ram: [], gpu: null, ssd: [], hdd: [], case_fan: [], psu: null }
+    loadout: { cpu: null, mobo: null, ram: [], gpu: null, cooler: null, ssd: [], hdd: [], case_fan: [], psu: null }
 };
+
+// --- LANGUAGE TRANSLATIONS ---
+const TEXTS = {
+    EN: {
+        lang_btn: "EN", budget_btn: "Budget", save_btn: "Save", load_btn: "Load", search_ph: "Search hardware...", telemetry: "Live Telemetry", case_btn: "Add Case Price",
+        stock_cooler: "Stock Cooler", overclock: "Overclock", total_est: "Total Build Estimate", out_of_budget: "⚠️ OUT OF BUDGET",
+        perf_score: "System Performance Score", power_draw: "Power Draw", bottleneck: "Bottleneck", thermals: "Thermal Dynamics",
+        active_conf: "Active Configuration", awaiting: "Awaiting hardware...", remove: "Remove", equip: "Equip", equipped: "Equipped", details: "Details", close: "Close",
+        add: "Add", sort_default: "Default Sort", sort_asc: "Price: Low to High", sort_desc: "Price: High to Low", on: "ON", off: "OFF", drawer_title: "Select Component",
+        grade_s: "Grade S - Enthusiast", grade_a: "Grade A - High End", grade_b: "Grade B - Mid Range", grade_c: "Grade C - Budget", grade_d: "Grade D - Entry Level", grade_none: "Incomplete",
+        save_title: "Save Build", save_desc: "Save your build to the Cloud (generates a unique code) or download it locally.", save_cloud: "Save to Cloud", save_local: "Download (.json)", your_code: "Your Code:",
+        load_title: "Load Build", load_desc: "Enter a 6-digit Cloud Code or upload a previously downloaded .json file.", load_cloud: "Load Cloud", load_local: "Upload (.json)",
+        all_sockets: "All Sockets"
+    },
+    ID: {
+        lang_btn: "ID", budget_btn: "Anggaran", save_btn: "Simpan", load_btn: "Muat", search_ph: "Cari komponen...", telemetry: "Telemetri Langsung", case_btn: "Harga Casing",
+        stock_cooler: "Pendingin Bawaan", overclock: "Overclock", total_est: "Estimasi Total Rakitan", out_of_budget: "⚠️ MELEBIHI ANGGARAN",
+        perf_score: "Skor Performa Sistem", power_draw: "Konsumsi Daya", bottleneck: "Hambatan", thermals: "Dinamika Termal",
+        active_conf: "Konfigurasi Aktif", awaiting: "Menunggu komponen...", remove: "Hapus", equip: "Pilih", equipped: "Terpilih", details: "Detail", close: "Tutup",
+        add: "Tambah", sort_default: "Urutan Default", sort_asc: "Harga: Termurah", sort_desc: "Harga: Termahal", on: "NYALA", off: "MATI", drawer_title: "Pilih Komponen",
+        grade_s: "Kelas S - Antusias", grade_a: "Kelas A - Kelas Atas", grade_b: "Kelas B - Menengah", grade_c: "Kelas C - Hemat", grade_d: "Kelas D - Pemula", grade_none: "Belum Lengkap",
+        save_title: "Simpan Rakitan", save_desc: "Simpan rakitan Anda ke Cloud (mendapatkan kode unik) atau unduh langsung ke perangkat.", save_cloud: "Simpan ke Cloud", save_local: "Unduh (.json)", your_code: "Kode Anda:",
+        load_title: "Muat Rakitan", load_desc: "Masukkan 6-digit Kode Cloud atau unggah file .json yang pernah diunduh.", load_cloud: "Muat Cloud", load_local: "Unggah (.json)",
+        all_sockets: "Semua Soket"
+    }
+};
+
+function t(k) { return TEXTS[state.lang][k] || k; }
+
+function tStatus(enStr) {
+    if (state.lang === 'EN') return enStr;
+    const dict = {
+        "Severe CPU Limit": "Batas CPU Parah", "GPU Starved": "GPU Kekurangan Data", "CPU Limit": "Batas CPU", "GPU Waiting": "GPU Menunggu",
+        "GPU Limit": "Batas GPU", "CPU Overkill": "CPU Berlebih", "Optimal": "Optimal", "Balanced": "Seimbang", "Thermal Throttling": "Throttling Termal",
+        "Warm / Loud Fans": "Hangat / Kipas Bising", "Excellent Cooling": "Pendinginan Optimal", "Overheating Risk": "Risiko Overheat", "No Cooler": "Tanpa Pendingin",
+        "Awaiting CPU/Cooler": "Menunggu CPU/Pendingin", "Awaiting PSU": "Menunggu PSU", "Critical Overload Risk": "Risiko Overload Kritis",
+        "Efficient Load": "Beban Efisien", "Sufficient": "Memadai", "Awaiting Hardware": "Menunggu Komponen", "Incomplete": "Belum Lengkap", "N/A": "N/A"
+    };
+    if (enStr.includes('Deficit')) return enStr.replace('Deficit', 'Defisit');
+    if (enStr.includes('Clearance')) return enStr.replace('Clearance', 'Sisa');
+    if (enStr.includes('Headroom')) return enStr.replace('Headroom', 'Aman');
+    return dict[enStr] || enStr;
+}
+
+function updateLanguageUI() {
+    document.getElementById('lang-toggle').innerText = t('lang_btn');
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (TEXTS[state.lang][key]) el.innerHTML = TEXTS[state.lang][key];
+    });
+    document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+        const key = el.getAttribute('data-i18n-ph');
+        if (TEXTS[state.lang][key]) el.placeholder = TEXTS[state.lang][key];
+    });
+
+    const ocBtn = document.getElementById('btn-overclock');
+    if (state.isOverclocked) ocBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> ${t('overclock')}: ${t('on')}`;
+    else ocBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> ${t('overclock')}: ${t('off')}`;
+
+    const scBtn = document.getElementById('btn-stock-cooler');
+    if (state.useStockCooler) scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> ${t('stock_cooler')}: ${t('on')}`;
+    else scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> ${t('stock_cooler')}: ${t('off')}`;
+
+    renderSidebar();
+    if (state.activeCategory) renderInventoryList();
+    renderBlueprint();
+    updateMetrics();
+}
+
+function toggleLanguage() {
+    state.lang = state.lang === 'ID' ? 'EN' : 'ID';
+    updateLanguageUI();
+}
 
 const MULTI_SLOT_CATEGORIES = ['ram', 'ssd', 'hdd', 'case_fan'];
 const imgFallback = "https://placehold.co/64x64/1c1c1e/86868b?text=No+Image";
@@ -42,15 +116,12 @@ const ICONS = {
     psu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>'
 };
 
-const SHORT_NAMES = { cpu: "PROCESSOR", cooler: "COOLER", mobo: "MOTHERBOARD", ram: "MEMORY", gpu: "GRAPHICS", ssd: "SSD", hdd: "HDD", case_fan: "FAN", psu: "POWER" };
-
 function getSafeImageUrl(url) {
     if (!url) return imgFallback;
     if (url.includes('placehold.co') || url.includes('wsrv.nl')) return url;
     return `https://wsrv.nl/?url=${encodeURIComponent(url.replace(/^https?:\/\//, ''))}`;
 }
 
-// --- DRAG TO SCROLL ENGINE ---
 function applyDragScroll(ele) {
     if (!ele) return;
     let isDown = false;
@@ -88,7 +159,6 @@ function applyDragScroll(ele) {
     ele.addEventListener('click', (e) => {
         if (dragged) { e.preventDefault(); e.stopPropagation(); }
     }, true);
-
     ele.addEventListener('wheel', (e) => {
         const isHorizontalTarget = ele.classList.contains('brand-chips') || (ele.classList.contains('sidebar-nav') && window.innerWidth <= 900);
         if (isHorizontalTarget && e.deltaY !== 0) {
@@ -105,7 +175,7 @@ async function init() {
         db = await response.json();
     } catch (error) { console.warn("Failed to load data.json."); }
     db.categories.forEach(cat => state.filters[cat.id] = { brand: 'All', sort: 'default' });
-    setupEventListeners(); renderSidebar(); renderBlueprint(); updateMetrics();
+    setupEventListeners(); updateLanguageUI(); 
 }
 
 function initTheme() {
@@ -129,6 +199,7 @@ function updateThemeIcon(theme) {
 function setupEventListeners() {
     document.getElementById('btn-theme-toggle').addEventListener('click', toggleTheme);
     document.getElementById('currency-toggle').addEventListener('click', toggleCurrency);
+    document.getElementById('lang-toggle').addEventListener('click', toggleLanguage);
     document.getElementById('search-box').addEventListener('input', (e) => { state.searchQuery = e.target.value.toLowerCase(); renderInventoryList(); });
     document.querySelectorAll('.btn-platform').forEach(btn => btn.addEventListener('click', (e) => setPlatform(e.target.dataset.platform)));
     
@@ -136,8 +207,8 @@ function setupEventListeners() {
     document.getElementById('btn-overclock').addEventListener('click', toggleOverclock);
     document.getElementById('btn-stock-cooler').addEventListener('click', toggleStockCooler);
     
-    document.getElementById('btn-open-sync').addEventListener('click', () => document.getElementById('sync-modal').classList.remove('hidden'));
-    document.getElementById('btn-close-sync').addEventListener('click', () => document.getElementById('sync-modal').classList.add('hidden'));
+    document.getElementById('btn-save-project').addEventListener('click', () => document.getElementById('save-modal').classList.remove('hidden'));
+    document.getElementById('btn-load-project').addEventListener('click', () => document.getElementById('load-modal').classList.remove('hidden'));
     document.getElementById('btn-cloud-save').addEventListener('click', saveToCloud);
     document.getElementById('btn-cloud-load').addEventListener('click', loadFromCloud);
     document.getElementById('btn-local-download').addEventListener('click', downloadLocal);
@@ -154,8 +225,6 @@ function setupEventListeners() {
     document.getElementById('btn-save-case').addEventListener('click', saveCasePrice);
     document.getElementById('btn-clear-case').addEventListener('click', () => { state.casePrice = 0; document.getElementById('case-modal').classList.add('hidden'); updateMetrics(); });
     
-    document.getElementById('btn-close-item').addEventListener('click', () => document.getElementById('item-details-modal').classList.add('hidden'));
-
     const formatInput = function(e) {
         let value = this.value.replace(/\D/g, ''); 
         if (!value) { this.value = ''; return; }
@@ -172,58 +241,25 @@ function renderSidebar() {
         const btn = document.createElement('button');
         btn.className = 'nav-item';
         btn.id = `nav-${cat.id}`;
-        btn.innerHTML = `${ICONS[cat.id] || ICONS['cpu']} <span>${SHORT_NAMES[cat.id]}</span>`;
+        
+        const shortName = {
+            cpu: {EN:"PROCESSOR", ID:"PROSESOR"}, cooler: {EN:"COOLER", ID:"PENDINGIN"}, mobo: {EN:"MOTHERBOARD", ID:"MOTHERBOARD"},
+            ram: {EN:"MEMORY", ID:"MEMORI"}, gpu: {EN:"GRAPHICS", ID:"GRAFIS"}, ssd: {EN:"SSD", ID:"SSD"}, hdd: {EN:"HDD", ID:"HDD"},
+            case_fan: {EN:"FAN", ID:"KIPAS"}, psu: {EN:"POWER", ID:"POWER"}
+        }[cat.id]?.[state.lang] || cat.name;
+
+        btn.innerHTML = `${ICONS[cat.id] || ICONS['cpu']} <span>${shortName}</span>`;
         btn.onclick = () => openDrawer(cat.id);
+        if (state.activeCategory === cat.id) btn.classList.add('active');
         nav.appendChild(btn);
     });
-    applyDragScroll(nav); // Enable Drag Scroll
+    applyDragScroll(nav); 
 }
 
 function hashString(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) { hash = Math.imul(31, hash) + str.charCodeAt(i) | 0; }
     return Math.abs(hash);
-}
-
-window.showItemDetails = function(categoryId, itemId) {
-    const item = db.items[categoryId].find(i => i.id === itemId);
-    if (!item) return;
-
-    document.getElementById('ai-item-title').innerText = item.name;
-    const h = hashString(item.id);
-    let perfScore = item.perf || (h % 50) + 40; 
-    let buildScore = (h % 40) + 60; 
-    let valueScore = ((h >> 2) % 30) + 70; 
-
-    const premium = ["Noctua", "ASUS", "Corsair", "Samsung", "G.Skill", "MSI"];
-    const budget = ["Kaizen", "V-GeN", "Cube Gaming", "RUIX", "Power Up"];
-    if(premium.includes(item.brand)) { buildScore = Math.min(100, buildScore + 15); valueScore = Math.max(50, valueScore - 10); }
-    if(budget.includes(item.brand)) { valueScore = Math.min(100, valueScore + 15); buildScore = Math.max(50, buildScore - 15); }
-
-    perfScore = Math.min(100, perfScore); buildScore = Math.min(100, buildScore); valueScore = Math.min(100, valueScore);
-
-    let desc = `The <strong>${item.brand || 'component'} ${item.name}</strong> offers a compelling mix of features. `;
-    if(perfScore > 85) desc += `As a top-tier part in its category, it delivers enthusiast-level performance suited for heavy workloads. `;
-    else if(perfScore > 65) desc += `It sits comfortably in the mid-range, providing great balance for standard gaming builds. `;
-    else desc += `This is an entry-level option, perfect for tight budgets and basic tasks. `;
-    if(valueScore > 85) desc += `It stands out with an exceptional value-to-price ratio.`;
-    else desc += `While slightly premium, the build quality justifies the investment.`;
-
-    document.getElementById('ai-item-desc').innerHTML = desc;
-    document.getElementById('ai-score-perf').innerText = perfScore;
-    document.getElementById('ai-score-build').innerText = buildScore;
-    document.getElementById('ai-score-value').innerText = valueScore;
-
-    document.getElementById('ai-bar-perf').style.width = '0%';
-    document.getElementById('ai-bar-build').style.width = '0%';
-    document.getElementById('ai-bar-value').style.width = '0%';
-    document.getElementById('item-details-modal').classList.remove('hidden');
-
-    setTimeout(() => {
-        document.getElementById('ai-bar-perf').style.width = `${perfScore}%`;
-        document.getElementById('ai-bar-build').style.width = `${buildScore}%`;
-        document.getElementById('ai-bar-value').style.width = `${valueScore}%`;
-    }, 100);
 }
 
 function openBudgetModal() {
@@ -265,16 +301,44 @@ function saveCasePrice() {
 }
 
 function openDrawer(catId) {
-    state.activeCategory = catId;
-    const catData = db.categories.find(c => c.id === catId);
-    document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
-    document.getElementById(`nav-${catId}`).classList.add('active');
-    document.getElementById('drawer-title').innerText = catData.name;
-    const platContainer = document.querySelector('.platform-container');
-    if (catId === 'cpu' || catId === 'mobo') platContainer.classList.add('active');
-    else platContainer.classList.remove('active');
-    document.getElementById('component-drawer').classList.add('open');
-    renderInventoryList();
+    if (state.activeCategory === catId) return; 
+    
+    const listContent = document.getElementById('drawer-list');
+    listContent.classList.add('fade-out'); 
+
+    setTimeout(() => {
+        state.activeCategory = catId;
+        const catData = db.categories.find(c => c.id === catId);
+        document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(`nav-${catId}`).classList.add('active');
+        
+        // Memaksa platform default agar INTEL jika belum diset
+        if ((catId === 'cpu' || catId === 'mobo') && !state.platform) {
+            state.platform = 'INTEL';
+            document.querySelectorAll('.btn-platform').forEach(btn => {
+                btn.classList.remove('active-intel', 'active-amd');
+                if(btn.dataset.platform === 'INTEL') btn.classList.add('active-intel');
+            });
+        }
+        
+        const catTranslations = {
+            'cpu': { EN: 'PROCESSOR (CPU)', ID: 'PROSESOR (CPU)' }, 'cooler': { EN: 'CPU COOLER', ID: 'PENDINGIN CPU' },
+            'mobo': { EN: 'MOTHERBOARD', ID: 'MOTHERBOARD' }, 'ram': { EN: 'MEMORY (RAM)', ID: 'MEMORI (RAM)' },
+            'gpu': { EN: 'GRAPHICS (GPU)', ID: 'KARTU GRAFIS (GPU)' }, 'ssd': { EN: 'SOLID STATE DRIVE (SSD)', ID: 'SOLID STATE DRIVE (SSD)' },
+            'hdd': { EN: 'HARD DISK DRIVE (HDD)', ID: 'HARD DISK DRIVE (HDD)' }, 'case_fan': { EN: 'CASE FANS', ID: 'KIPAS CASING' },
+            'psu': { EN: 'POWER SUPPLY', ID: 'POWER SUPPLY (PSU)' }
+        };
+        
+        document.getElementById('drawer-title').innerText = catTranslations[catId]?.[state.lang] || catData.name;
+        const platContainer = document.querySelector('.platform-container');
+        if (catId === 'cpu' || catId === 'mobo') platContainer.classList.add('active');
+        else platContainer.classList.remove('active');
+        
+        document.getElementById('component-drawer').classList.add('open');
+        renderInventoryList();
+        
+        listContent.classList.remove('fade-out'); 
+    }, 150); 
 }
 
 function closeDrawer() {
@@ -289,39 +353,99 @@ window.setFilter = function(type, value) {
     renderInventoryList(); 
 }
 
+window.setSocketFilter = function(socket) {
+    state.socketFilter = socket;
+    renderInventoryList();
+}
+
+window.toggleInlineDetails = function(itemId) {
+    const el = document.getElementById(`details-${itemId}`);
+    if (el.classList.contains('hidden')) {
+        el.classList.remove('hidden');
+        setTimeout(() => {
+            const bars = el.querySelectorAll('.fill-small');
+            bars.forEach(b => b.style.width = b.getAttribute('data-target-width'));
+        }, 50);
+    } else {
+        el.classList.add('hidden');
+        const bars = el.querySelectorAll('.fill-small');
+        bars.forEach(b => b.style.width = '0%');
+    }
+}
+
 function renderInventoryList() {
     if(!state.activeCategory) return;
     const catId = state.activeCategory;
     const container = document.getElementById('drawer-list');
     const filterContainer = document.getElementById('filter-container');
-    container.innerHTML = ''; filterContainer.innerHTML = '';
+    const socketFilterContainer = document.getElementById('socket-filter-container');
+    
+    container.innerHTML = ''; filterContainer.innerHTML = ''; 
+    if (socketFilterContainer) socketFilterContainer.innerHTML = '';
 
     let validItems = (db.items[catId] || []).filter(item => smartSearchMatch(item, state.searchQuery));
-    const currentFilter = state.filters[catId];
+
+    if (catId === 'cpu' || catId === 'mobo') {
+        if (state.platform && socketFilterContainer) {
+            const platformSockets = [...new Set(db.items.cpu.filter(c => c.brand === state.platform).map(c => c.socket))];
+            socketFilterContainer.innerHTML = `
+                <div class="brand-chips" style="margin-top: 8px;">
+                    <button class="chip ${state.socketFilter === null ? 'active' : ''}" onclick="window.setSocketFilter(null)">${t('all_sockets')}</button>
+                    ${platformSockets.map(s => `<button class="chip ${state.socketFilter === s ? 'active' : ''}" onclick="window.setSocketFilter('${s}')">${s}</button>`).join('')}
+                </div>
+            `;
+            applyDragScroll(socketFilterContainer.querySelector('.brand-chips'));
+            
+            if (catId === 'cpu') validItems = validItems.filter(item => item.brand === state.platform);
+            else if (catId === 'mobo') validItems = validItems.filter(item => platformSockets.includes(item.socket));
+            
+            if (state.socketFilter) {
+                validItems = validItems.filter(item => item.socket === state.socketFilter);
+            }
+        }
+        
+        if (catId === 'cpu' && state.loadout.mobo) {
+            validItems = validItems.filter(item => item.socket === state.loadout.mobo.socket);
+        } else if (catId === 'mobo' && state.loadout.cpu) {
+            validItems = validItems.filter(item => item.socket === state.loadout.cpu.socket);
+        }
+    }
+
+    const currentFilter = state.filters[catId] || { brand: 'All', sort: 'default' };
     const brands = ['All', ...new Set(validItems.map(i => i.brand || i.name.split(' ')[0]))];
+    
+    // 100% MENGHILANGKAN FILTER BRAND (ALL/INTEL/AMD) DARI CPU & MOBO
+    const showBrandFilter = (catId !== 'cpu' && catId !== 'mobo'); 
 
     if (validItems.length > 0 || currentFilter.brand !== 'All') {
         filterContainer.innerHTML = `
             <div class="filter-bar">
+                ${showBrandFilter ? `
                 <div class="brand-chips">
                     ${brands.map(b => `<button class="chip ${currentFilter.brand === b ? 'active' : ''}" onclick="window.setFilter('brand', '${b}')">${b}</button>`).join('')}
                 </div>
+                ` : ''}
                 <select class="sort-select" onchange="window.setFilter('sort', this.value)">
-                    <option value="default" ${currentFilter.sort === 'default' ? 'selected' : ''}>Default Sort</option>
-                    <option value="price_asc" ${currentFilter.sort === 'price_asc' ? 'selected' : ''}>Price: Low to High</option>
-                    <option value="price_desc" ${currentFilter.sort === 'price_desc' ? 'selected' : ''}>Price: High to Low</option>
+                    <option value="default" ${currentFilter.sort === 'default' ? 'selected' : ''}>${t('sort_default')}</option>
+                    <option value="price_asc" ${currentFilter.sort === 'price_asc' ? 'selected' : ''}>${t('sort_asc')}</option>
+                    <option value="price_desc" ${currentFilter.sort === 'price_desc' ? 'selected' : ''}>${t('sort_desc')}</option>
                 </select>
             </div>
         `;
-        applyDragScroll(filterContainer.querySelector('.brand-chips')); // ENABLE DRAG SCROLL HERE
+        if (showBrandFilter) {
+            applyDragScroll(filterContainer.querySelector('.brand-chips'));
+        }
     }
 
-    if (currentFilter.brand !== 'All') validItems = validItems.filter(i => (i.brand || i.name.split(' ')[0]) === currentFilter.brand);
+    if (showBrandFilter && currentFilter.brand !== 'All') {
+        validItems = validItems.filter(i => (i.brand || i.name.split(' ')[0]) === currentFilter.brand);
+    }
+
     if (currentFilter.sort === 'price_asc') validItems.sort((a, b) => a.priceUsd - b.priceUsd);
     else if (currentFilter.sort === 'price_desc') validItems.sort((a, b) => b.priceUsd - a.priceUsd);
 
     if (validItems.length === 0) {
-        container.innerHTML = `<div class="item-card" style="justify-content:center"><p style="color:var(--text-muted);">No compatible hardware found.</p></div>`;
+        container.innerHTML = `<div class="item-card-wrap" style="padding:20px; align-items:center; cursor:default; border:1px solid transparent;"><p style="color:var(--text-muted);">${t('awaiting')}</p></div>`;
         return;
     }
 
@@ -346,26 +470,80 @@ function renderInventoryList() {
             }
         }
 
-        const btnText = isMulti ? (count > 0 ? `Add (+${count})` : 'Add') : (isEquipped ? 'Equipped' : 'Equip');
         const finalImgSrc = getSafeImageUrl(item.imageUrl);
         const itemLink = item.link || `https://www.tokopedia.com/search?q=${encodeURIComponent(item.name)}`;
+        const brandColorStyle = item.brand === 'AMD' ? 'color: var(--accent-red);' : (item.brand === 'INTEL' ? 'color: var(--accent-blue);' : '');
 
-        const card = document.createElement('div');
-        card.className = 'item-card';
-        card.onclick = () => window.showItemDetails(catId, item.id);
+        const h = hashString(item.id);
+        let perfScore = item.perf || (h % 50) + 40; 
+        let buildScore = (h % 40) + 60; 
+        let valueScore = ((h >> 2) % 30) + 70; 
+        const premium = ["Noctua", "ASUS", "Corsair", "Samsung", "G.Skill", "MSI", "KLEVV"];
+        const budget = ["Kaizen", "V-GeN", "Cube Gaming", "RUIX", "Power Up"];
+        if(premium.includes(item.brand)) { buildScore = Math.min(100, buildScore + 15); valueScore = Math.max(50, valueScore - 10); }
+        if(budget.includes(item.brand)) { valueScore = Math.min(100, valueScore + 15); buildScore = Math.max(50, buildScore - 15); }
+        perfScore = Math.min(100, perfScore); buildScore = Math.min(100, buildScore); valueScore = Math.min(100, valueScore);
+
+        let descEN = `The <strong>${item.brand || 'component'} ${item.name}</strong> offers a compelling mix of features. ` +
+                     (perfScore > 85 ? `As a top-tier part in its category, it delivers enthusiast-level performance suited for heavy workloads. ` :
+                     (perfScore > 65 ? `It sits comfortably in the mid-range, providing great balance for standard gaming builds. ` :
+                     `This is an entry-level option, perfect for tight budgets and basic tasks. `)) +
+                     (valueScore > 85 ? `It stands out with an exceptional value-to-price ratio.` : `While slightly premium, the build quality justifies the investment.`);
         
+        let descID = `<strong>${item.brand || 'Komponen'} ${item.name}</strong> menawarkan perpaduan fitur yang menarik. ` +
+                     (perfScore > 85 ? `Sebagai suku cadang papan atas di kategorinya, komponen ini memberikan performa level antusias yang cocok untuk beban kerja berat. ` :
+                     (perfScore > 65 ? `Komponen ini berada di kelas menengah, memberikan keseimbangan yang bagus untuk rakitan gaming standar. ` :
+                     `Ini adalah opsi entry-level, cocok untuk anggaran terbatas dan tugas-tugas dasar. `)) +
+                     (valueScore > 85 ? `Menonjol dengan rasio nilai dan harga yang sangat luar biasa.` : `Meski sedikit premium, kualitas rangkanya sepadan dengan investasi Anda.`);
+        
+        const card = document.createElement('div');
+        card.className = `item-card-wrap ${isEquipped ? 'equipped-card' : ''}`;
+        
+        let actionHtml = `<button class="btn-equip outline" onclick="event.stopPropagation(); window.toggleInlineDetails('${item.id}')">${t('details')}</button>`;
+        
+        if (isMulti) {
+            if (count > 0) {
+                actionHtml += `
+                <div class="qty-controls" onclick="event.stopPropagation()">
+                    <button onclick="window.removeMultiItemType('${catId}', '${item.id}')">-</button>
+                    <span>${count}</span>
+                    <button onclick="window.equipItem('${catId}', '${item.id}')">+</button>
+                </div>
+                `;
+            }
+        } else {
+            if (isEquipped) {
+                actionHtml += `<button class="btn-equip remove" onclick="event.stopPropagation(); window.removeSingleItem('${catId}')">${t('remove')}</button>`;
+            }
+        }
+
         card.innerHTML = `
-            <img class="item-img" src="${finalImgSrc}" alt="${displayName}" loading="lazy" onerror="this.onerror=null; this.src='${imgFallback}'">
-            <div class="item-info">
-                <div class="item-brand">${item.brand || 'Generic'}</div>
-                <h4 title="${displayName}">${displayName}</h4>
-                <div class="tags">${tags}</div>
-                ${ramQtyHtml}
-                <p class="price-tag" data-usd="${item.priceUsd}">${formatPrice(item.priceUsd)}</p>
+            <div class="item-card-main" onclick="window.equipItem('${catId}', '${item.id}')">
+                <img class="item-img" src="${finalImgSrc}" alt="${displayName}" loading="lazy" onerror="this.onerror=null; this.src='${imgFallback}'">
+                <div class="item-info">
+                    <div class="item-brand" style="${brandColorStyle}">${item.brand || 'Generic'}</div>
+                    <h4 title="${displayName}">${displayName}</h4>
+                    <div class="tags">${tags}</div>
+                    ${ramQtyHtml}
+                    <p class="price-tag" data-usd="${item.priceUsd}">${formatPrice(item.priceUsd)}</p>
+                </div>
+                <div class="action-column">
+                    ${isEquipped && !isMulti ? `<span class="equipped-badge">${t('equipped')}</span>` : ''}
+                    <div class="button-group">
+                        ${actionHtml}
+                        <a href="${itemLink}" target="_blank" class="btn-tokopedia-mini" title="Tokopedia" onclick="event.stopPropagation();">${tkpdSvg}</a>
+                    </div>
+                </div>
             </div>
-            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end; justify-content:center;">
-                <button class="btn-equip ${isEquipped ? 'equipped' : ''}" onclick="event.stopPropagation(); window.equipItem('${catId}', '${item.id}')">${btnText}</button>
-                <a href="${itemLink}" target="_blank" class="btn-tokopedia-mini" style="display: inline-flex; align-items: center; justify-content: center; background: #00AA5B; color: #ffffff; text-decoration: none; width: 30px; height: 30px; border-radius: 8px;" title="Lihat di Tokopedia" onclick="event.stopPropagation();">${tkpdSvg}</a>
+            
+            <div class="inline-details hidden" id="details-${item.id}">
+                <div class="details-inner">
+                    <p class="details-desc">${state.lang === 'ID' ? descID : descEN}</p>
+                    <div class="ai-rating-row"><span>Performance</span><div class="progress-bar-small"><div class="fill-small bg-blue" style="width:0%;" data-target-width="${perfScore}%"></div></div><span class="ai-score">${perfScore}</span></div>
+                    <div class="ai-rating-row"><span>Build Quality</span><div class="progress-bar-small"><div class="fill-small bg-green" style="width:0%;" data-target-width="${buildScore}%"></div></div><span class="ai-score">${buildScore}</span></div>
+                    <div class="ai-rating-row"><span>Value</span><div class="progress-bar-small"><div class="fill-small bg-amber" style="width:0%;" data-target-width="${valueScore}%"></div></div><span class="ai-score">${valueScore}</span></div>
+                </div>
+                <button class="btn-close-inline" onclick="window.toggleInlineDetails('${item.id}')">${t('close')} ✕</button>
             </div>
         `;
         container.appendChild(card);
@@ -381,6 +559,7 @@ function smartSearchMatch(item, query) {
 
 function setPlatform(platform) {
     state.platform = platform;
+    state.socketFilter = null; 
     document.querySelectorAll('.btn-platform').forEach(btn => {
         btn.classList.remove('active-intel', 'active-amd');
         if(btn.dataset.platform === platform) btn.classList.add(platform === 'INTEL' ? 'active-intel' : 'active-amd');
@@ -412,7 +591,7 @@ function renderBlueprint() {
         
         if (isMulti) {
             const arr = state.loadout[cat.id];
-            if (arr.length === 0) innerHtml = `<div class="slot-empty">Awaiting hardware...</div>`;
+            if (arr.length === 0) innerHtml = `<div class="slot-empty">${t('awaiting')}</div>`;
             else {
                 arr.forEach(item => {
                     const finalImgSrc = getSafeImageUrl(item.imageUrl);
@@ -428,7 +607,7 @@ function renderBlueprint() {
                             <div class="slot-actions">
                                 <span class="blueprint-price">${formatPrice(item.priceUsd)}</span>
                                 <a href="${itemLink}" target="_blank" class="btn-tokopedia-mini" title="Lihat di Tokopedia">${tkpdSvg}</a>
-                                <button class="btn-remove" onclick="window.removeMultiItem('${cat.id}', '${item.instanceId}')">Remove</button>
+                                <button class="btn-remove" onclick="window.removeMultiItem('${cat.id}', '${item.instanceId}')">${t('remove')}</button>
                             </div>
                         </div>`;
                 });
@@ -443,12 +622,12 @@ function renderBlueprint() {
                             <div class="item-img" style="width:36px; height:36px; padding:0; display:flex; align-items:center; justify-content:center; color:var(--text-muted);">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg>
                             </div>
-                            <span>${brandText} Stock Cooler (In-Box)</span>
+                            <span>${brandText} ${state.lang === 'ID' ? 'Pendingin Bawaan (Dalam Kotak)' : 'Stock Cooler (In-Box)'}</span>
                         </div>
                         <div class="slot-actions"><span class="blueprint-price">Rp 0</span></div>
                     </div>`;
             } else if (!item) {
-                innerHtml = `<div class="slot-empty">Awaiting hardware...</div>`;
+                innerHtml = `<div class="slot-empty">${t('awaiting')}</div>`;
             } else {
                 const finalImgSrc = getSafeImageUrl(item.imageUrl);
                 const itemLink = item.link || `https://www.tokopedia.com/search?q=${encodeURIComponent(item.name)}`;
@@ -463,12 +642,22 @@ function renderBlueprint() {
                         <div class="slot-actions">
                             <span class="blueprint-price">${formatPrice(item.priceUsd)}</span>
                             <a href="${itemLink}" target="_blank" class="btn-tokopedia-mini" title="Lihat di Tokopedia">${tkpdSvg}</a>
-                            <button class="btn-remove" onclick="window.removeSingleItem('${cat.id}')">Remove</button>
+                            <button class="btn-remove" onclick="window.removeSingleItem('${cat.id}')">${t('remove')}</button>
                         </div>
                     </div>`;
             }
         }
-        slot.innerHTML = `<div class="slot-header">${cat.name}</div>` + innerHtml;
+        
+        const catTranslations = {
+            'cpu': { EN: 'PROCESSOR (CPU)', ID: 'PROSESOR (CPU)' }, 'cooler': { EN: 'CPU COOLER', ID: 'PENDINGIN CPU' },
+            'mobo': { EN: 'MOTHERBOARD', ID: 'MOTHERBOARD' }, 'ram': { EN: 'MEMORY (RAM)', ID: 'MEMORI (RAM)' },
+            'gpu': { EN: 'GRAPHICS (GPU)', ID: 'KARTU GRAFIS (GPU)' }, 'ssd': { EN: 'SOLID STATE DRIVE (SSD)', ID: 'SOLID STATE DRIVE (SSD)' },
+            'hdd': { EN: 'HARD DISK DRIVE (HDD)', ID: 'HARD DISK DRIVE (HDD)' }, 'case_fan': { EN: 'CASE FANS', ID: 'KIPAS CASING' },
+            'psu': { EN: 'POWER SUPPLY', ID: 'POWER SUPPLY (PSU)' }
+        };
+        const catName = catTranslations[cat.id]?.[state.lang] || cat.name;
+
+        slot.innerHTML = `<div class="slot-header">${catName}</div>` + innerHtml;
         container.appendChild(slot);
     });
 }
@@ -495,6 +684,13 @@ window.equipItem = function(categoryId, itemId) {
 
 window.removeSingleItem = function(categoryId) {
     state.loadout[categoryId] = null;
+    renderInventoryList(); renderBlueprint(); updateMetrics();
+};
+
+window.removeMultiItemType = function(catId, itemId) {
+    const arr = state.loadout[catId];
+    const idx = arr.map(i => i.id).lastIndexOf(itemId);
+    if (idx !== -1) arr.splice(idx, 1);
     renderInventoryList(); renderBlueprint(); updateMetrics();
 };
 
@@ -531,11 +727,11 @@ function toggleOverclock() {
     const indicator = document.getElementById('oc-indicator');
     if (state.isOverclocked) {
         btn.classList.add('active');
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Overclock: ON`;
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> ${t('overclock')}: ${t('on')}`;
         if(indicator) indicator.style.display = 'block';
     } else {
         btn.classList.remove('active');
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> Overclock: OFF`;
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> ${t('overclock')}: ${t('off')}`;
         if(indicator) indicator.style.display = 'none';
     }
     updateMetrics();
@@ -546,10 +742,10 @@ function toggleStockCooler() {
     const btn = document.getElementById('btn-stock-cooler');
     if (state.useStockCooler) { 
         btn.classList.add('active'); 
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: ON`; 
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> ${t('stock_cooler')}: ${t('on')}`; 
     } else { 
         btn.classList.remove('active'); 
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: OFF`; 
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> ${t('stock_cooler')}: ${t('off')}`; 
     }
     renderBlueprint(); updateMetrics();
 }
@@ -560,7 +756,8 @@ function updateDot(id, statusClass) {
 }
 
 function updateMetrics() {
-    let totalUsd = 0; let sysWattage = 50; let gameScore = 0;
+    let totalUsd = 0; let sysWattage = 30; 
+    let gameScore = 0;
     const { cpu, cooler, gpu, ram, psu, mobo } = state.loadout;
     const ocWattMult = state.isOverclocked ? 1.20 : 1.0;
     const ocPerfMult = state.isOverclocked ? 1.08 : 1.0;
@@ -569,7 +766,7 @@ function updateMetrics() {
     let sysAlerts = [];
     
     if (cpu && mobo && cpu.socket !== mobo.socket) {
-        sysAlerts.push(`CPU and Motherboard sockets do not match! (${cpu.socket} vs ${mobo.socket})`);
+        sysAlerts.push(state.lang === 'ID' ? `Soket CPU dan Motherboard tidak cocok! (${cpu.socket} vs ${mobo.socket})` : `CPU and Motherboard sockets do not match! (${cpu.socket} vs ${mobo.socket})`);
     }
 
     let avgRamPerf = 0;
@@ -589,13 +786,13 @@ function updateMetrics() {
         avgRamPerf = totalRamPerf / ram.length;
 
         if (mobo && types.size > 0 && !types.has(mobo.type)) {
-            sysAlerts.push(`RAM type does not match Motherboard! (Needs ${mobo.type})`);
+            sysAlerts.push(state.lang === 'ID' ? `Tipe RAM tidak cocok dengan Motherboard! (Butuh ${mobo.type})` : `RAM type does not match Motherboard! (Needs ${mobo.type})`);
         }
         if (speeds.size > 1) {
-            sysAlerts.push(`RAM Warning: Mixed frequencies detected. System will run at the slowest RAM speed.`);
+            sysAlerts.push(state.lang === 'ID' ? `Peringatan RAM: Campuran frekuensi terdeteksi. Sistem akan berjalan pada kecepatan terendah.` : `RAM Warning: Mixed frequencies detected. System runs at slowest RAM speed.`);
         }
         if (ram.length % 2 !== 0 && ram.length > 1) {
-            sysAlerts.push(`RAM Warning: Asymmetric channel configuration detected. Pair modules for optimal Dual-Channel performance.`);
+            sysAlerts.push(state.lang === 'ID' ? `Peringatan RAM: Konfigurasi asimetris. Pasangkan untuk Dual-Channel optimal.` : `RAM Warning: Asymmetric channel config. Pair modules for Dual-Channel.`);
         }
     }
 
@@ -639,11 +836,11 @@ function updateMetrics() {
     if (bStatus && bReadout) {
         if (cpu && gpu) {
             const cpuP = cpu.perf * ocPerfMult; const gpuP = gpu.perf * ocPerfMult;
-            if (gpuP > cpuP * 1.3) { bReadout.innerText = "Severe CPU Limit"; bStatus.innerText = "GPU Starved"; updateDot('bottleneck-dot', 'danger'); } 
-            else if (gpuP > cpuP * 1.15) { bReadout.innerText = "CPU Limit"; bStatus.innerText = "GPU Waiting"; updateDot('bottleneck-dot', 'warn'); } 
-            else if (cpuP > gpuP * 1.3) { bReadout.innerText = "GPU Limit"; bStatus.innerText = "CPU Overkill"; updateDot('bottleneck-dot', 'warn'); } 
-            else { bReadout.innerText = "Optimal"; bStatus.innerText = "Balanced"; updateDot('bottleneck-dot', 'ok'); }
-        } else { bReadout.innerText = "N/A"; bStatus.innerText = "Incomplete"; updateDot('bottleneck-dot', ''); }
+            if (gpuP > cpuP * 1.3) { bReadout.innerText = tStatus("Severe CPU Limit"); bStatus.innerText = tStatus("GPU Starved"); updateDot('bottleneck-dot', 'danger'); } 
+            else if (gpuP > cpuP * 1.15) { bReadout.innerText = tStatus("CPU Limit"); bStatus.innerText = tStatus("GPU Waiting"); updateDot('bottleneck-dot', 'warn'); } 
+            else if (cpuP > gpuP * 1.3) { bReadout.innerText = tStatus("GPU Limit"); bStatus.innerText = tStatus("CPU Overkill"); updateDot('bottleneck-dot', 'warn'); } 
+            else { bReadout.innerText = tStatus("Optimal"); bStatus.innerText = tStatus("Balanced"); updateDot('bottleneck-dot', 'ok'); }
+        } else { bReadout.innerText = tStatus("N/A"); bStatus.innerText = tStatus("Incomplete"); updateDot('bottleneck-dot', ''); }
     }
 
     const tStatus = document.getElementById('thermal-status');
@@ -653,11 +850,11 @@ function updateMetrics() {
         if (cpu && activeCooler) {
             let currentCpuWatt = Math.round(cpu.watt * ocWattMult);
             const headroom = activeCooler.tdp_max - currentCpuWatt;
-            if (headroom < -10) { tReadout.innerText = `${headroom}W Deficit`; tStatus.innerText = "Thermal Throttling"; updateDot('thermal-dot', 'danger'); } 
-            else if (headroom < 30) { tReadout.innerText = `${headroom}W Clearance`; tStatus.innerText = "Warm / Loud Fans"; updateDot('thermal-dot', 'warn'); } 
-            else { tReadout.innerText = `+${headroom}W Headroom`; tStatus.innerText = "Excellent Cooling"; updateDot('thermal-dot', 'ok'); }
-        } else if (cpu && !activeCooler) { tReadout.innerText = "Overheating Risk"; tStatus.innerText = "No Cooler"; updateDot('thermal-dot', 'danger'); } 
-        else { tReadout.innerText = "N/A"; tStatus.innerText = "Awaiting CPU/Cooler"; updateDot('thermal-dot', ''); }
+            if (headroom < -10) { tReadout.innerText = `${headroom}${tStatus("W Deficit")}`; tStatus.innerText = tStatus("Thermal Throttling"); updateDot('thermal-dot', 'danger'); } 
+            else if (headroom < 30) { tReadout.innerText = `${headroom}${tStatus("W Clearance")}`; tStatus.innerText = tStatus("Warm / Loud Fans"); updateDot('thermal-dot', 'warn'); } 
+            else { tReadout.innerText = `+${headroom}${tStatus("W Headroom")}`; tStatus.innerText = tStatus("Excellent Cooling"); updateDot('thermal-dot', 'ok'); }
+        } else if (cpu && !activeCooler) { tReadout.innerText = tStatus("Overheating Risk"); tStatus.innerText = tStatus("No Cooler"); updateDot('thermal-dot', 'danger'); } 
+        else { tReadout.innerText = tStatus("N/A"); tStatus.innerText = tStatus("Awaiting CPU/Cooler"); updateDot('thermal-dot', ''); }
     }
 
     const pStatus = document.getElementById('psu-status');
@@ -680,12 +877,12 @@ function updateMetrics() {
     }
 
     if(pStatus) {
-        if (!psu && sysWattage > 50) { pStatus.innerText = "Awaiting PSU"; updateDot('psu-dot', 'warn'); } 
+        if (!psu && sysWattage > 50) { pStatus.innerText = tStatus("Awaiting PSU"); updateDot('psu-dot', 'warn'); } 
         else if (psu) {
-            if (sysWattage > psuMax * 0.9) { pStatus.innerText = "Critical Overload Risk"; updateDot('psu-dot', 'danger'); } 
-            else if (sysWattage > psuMax * 0.75) { pStatus.innerText = "Efficient Load"; updateDot('psu-dot', 'ok'); } 
-            else { pStatus.innerText = "Sufficient"; updateDot('psu-dot', 'ok'); }
-        } else { pStatus.innerText = "Awaiting Hardware"; updateDot('psu-dot', ''); }
+            if (sysWattage > psuMax * 0.9) { pStatus.innerText = tStatus("Critical Overload Risk"); updateDot('psu-dot', 'danger'); } 
+            else if (sysWattage > psuMax * 0.75) { pStatus.innerText = tStatus("Efficient Load"); updateDot('psu-dot', 'ok'); } 
+            else { pStatus.innerText = tStatus("Sufficient"); updateDot('psu-dot', 'ok'); }
+        } else { pStatus.innerText = tStatus("Awaiting Hardware"); updateDot('psu-dot', ''); }
     }
     
     const gamingBarEl = document.getElementById('gaming-bar');
@@ -694,12 +891,12 @@ function updateMetrics() {
     const gamingScoreEl = document.getElementById('gaming-score');
     if(gamingScoreEl) {
         let tierHTML = '';
-        if (gameScore === 0) tierHTML = `<span class="tier-badge grade-none">Incomplete</span>`;
-        else if (gameScore >= 900) tierHTML = `<span class="tier-badge grade-s">Grade S - Enthusiast</span>`;
-        else if (gameScore >= 700) tierHTML = `<span class="tier-badge grade-a">Grade A - High End</span>`;
-        else if (gameScore >= 500) tierHTML = `<span class="tier-badge grade-b">Grade B - Mid Range</span>`;
-        else if (gameScore >= 300) tierHTML = `<span class="tier-badge grade-c">Grade C - Budget</span>`;
-        else tierHTML = `<span class="tier-badge grade-d">Grade D - Entry Level</span>`;
+        if (gameScore === 0) tierHTML = `<span class="tier-badge grade-none">${t('grade_none')}</span>`;
+        else if (gameScore >= 900) tierHTML = `<span class="tier-badge grade-s">${t('grade_s')}</span>`;
+        else if (gameScore >= 700) tierHTML = `<span class="tier-badge grade-a">${t('grade_a')}</span>`;
+        else if (gameScore >= 500) tierHTML = `<span class="tier-badge grade-b">${t('grade_b')}</span>`;
+        else if (gameScore >= 300) tierHTML = `<span class="tier-badge grade-c">${t('grade_c')}</span>`;
+        else tierHTML = `<span class="tier-badge grade-d">${t('grade_d')}</span>`;
 
         gamingScoreEl.innerHTML = `${tierHTML} <span>${gameScore} / 1000</span>`;
     }
@@ -707,10 +904,10 @@ function updateMetrics() {
 }
 
 function serializeLoadout() { return { cpu: state.loadout.cpu?.id || null, cooler: state.loadout.cooler?.id || null, mobo: state.loadout.mobo?.id || null, ram: state.loadout.ram.map(i=>i.id), gpu: state.loadout.gpu?.id || null, psu: state.loadout.psu?.id || null, ssd: state.loadout.ssd.map(i => i.id), hdd: state.loadout.hdd.map(i => i.id), case_fan: state.loadout.case_fan.map(i => i.id), isOverclocked: state.isOverclocked, useStockCooler: state.useStockCooler, budget: state.budget, casePrice: state.casePrice }; }
-function deserializeLoadout(data) { state.loadout = { cpu: null, cooler: null, mobo: null, ram: [], gpu: null, ssd: [], hdd: [], case_fan: [], psu: null }; const findItem = (cat, id) => db.items[cat]?.find(i => i.id === id) || null; if (data.cpu) state.loadout.cpu = findItem('cpu', data.cpu); if (data.cooler) state.loadout.cooler = findItem('cooler', data.cooler); if (data.mobo) state.loadout.mobo = findItem('mobo', data.mobo); if (data.gpu) state.loadout.gpu = findItem('gpu', data.gpu); if (data.psu) state.loadout.psu = findItem('psu', data.psu); if (data.budget !== undefined) state.budget = data.budget; if (data.casePrice !== undefined) state.casePrice = data.casePrice; if (data.isOverclocked !== undefined) { state.isOverclocked = data.isOverclocked; const ocBtn = document.getElementById('btn-overclock'); if (state.isOverclocked) ocBtn.classList.add('active'); else ocBtn.classList.remove('active'); } if (data.useStockCooler !== undefined) { state.useStockCooler = data.useStockCooler; const scBtn = document.getElementById('btn-stock-cooler'); if (state.useStockCooler) { scBtn.classList.add('active'); scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: ON`; } else { scBtn.classList.remove('active'); scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> Stock Cooler: OFF`; } } ['ram','ssd', 'hdd', 'case_fan'].forEach(cat => { if (data[cat]) data[cat].forEach(id => { const item = findItem(cat, id); if (item) state.loadout[cat].push({ ...item, instanceId: Date.now().toString() + Math.random().toString() }); }); }); if (state.loadout.cpu) { state.platform = state.loadout.cpu.brand; state.requiredSocket = state.loadout.cpu.socket; } else { state.platform = null; state.requiredSocket = null; } closeDrawer(); renderBlueprint(); updateMetrics(); }
-async function saveToCloud() { if (!dbFirestore) return; const code = Math.random().toString(36).substring(2, 8).toUpperCase(); const btn = document.getElementById('btn-cloud-save'); btn.innerText = "Saving..."; btn.disabled = true; try { await setDoc(doc(dbFirestore, "builds", code), serializeLoadout()); document.getElementById('cloud-code-display').classList.remove('hidden'); document.getElementById('generated-code').innerText = code; } catch (e) { alert("Failed to save."); } finally { btn.innerText = "Generate Code"; btn.disabled = false; } }
-async function loadFromCloud() { if (!dbFirestore) return; const codeInput = document.getElementById('input-cloud-code').value.toUpperCase().trim(); if (codeInput.length !== 6) return; const btn = document.getElementById('btn-cloud-load'); btn.innerText = "Loading..."; btn.disabled = true; try { const docSnap = await getDoc(doc(dbFirestore, "builds", codeInput)); if (docSnap.exists()) deserializeLoadout(docSnap.data()); else alert("Code not found!"); } catch (e) { alert("Failed to load."); } finally { btn.innerText = "Load"; btn.disabled = false; } }
+function deserializeLoadout(data) { state.loadout = { cpu: null, cooler: null, mobo: null, ram: [], gpu: null, ssd: [], hdd: [], case_fan: [], psu: null }; const findItem = (cat, id) => db.items[cat]?.find(i => i.id === id) || null; if (data.cpu) state.loadout.cpu = findItem('cpu', data.cpu); if (data.cooler) state.loadout.cooler = findItem('cooler', data.cooler); if (data.mobo) state.loadout.mobo = findItem('mobo', data.mobo); if (data.gpu) state.loadout.gpu = findItem('gpu', data.gpu); if (data.psu) state.loadout.psu = findItem('psu', data.psu); if (data.budget !== undefined) state.budget = data.budget; if (data.casePrice !== undefined) state.casePrice = data.casePrice; if (data.isOverclocked !== undefined) { state.isOverclocked = data.isOverclocked; const ocBtn = document.getElementById('btn-overclock'); if (state.isOverclocked) ocBtn.classList.add('active'); else ocBtn.classList.remove('active'); } if (data.useStockCooler !== undefined) { state.useStockCooler = data.useStockCooler; const scBtn = document.getElementById('btn-stock-cooler'); if (state.useStockCooler) { scBtn.classList.add('active'); scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> ${t('stock_cooler')}: ${t('on')}`; } else { scBtn.classList.remove('active'); scBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c-3-3-3-9 0-9 3 0 3 6 0 9Z"/><path d="M12 12c3-3 9-3 9 0 0 3-6 3-9 0Z"/><path d="M12 12c3 3 3 9 0 9-3 0-3-6 0-9Z"/><path d="M12 12c-3 3-9 3-9 0 0-3 6-3 9 0Z"/></svg> ${t('stock_cooler')}: ${t('off')}`; } } ['ram','ssd', 'hdd', 'case_fan'].forEach(cat => { if (data[cat]) data[cat].forEach(id => { const item = findItem(cat, id); if (item) state.loadout[cat].push({ ...item, instanceId: Date.now().toString() + Math.random().toString() }); }); }); if (state.loadout.cpu) { state.platform = state.loadout.cpu.brand; state.requiredSocket = state.loadout.cpu.socket; } else { state.platform = null; state.requiredSocket = null; } closeDrawer(); renderBlueprint(); updateMetrics(); }
+async function saveToCloud() { if (!dbFirestore) return; const code = Math.random().toString(36).substring(2, 8).toUpperCase(); const btn = document.getElementById('btn-cloud-save'); btn.innerText = "Saving..."; btn.disabled = true; try { await setDoc(doc(dbFirestore, "builds", code), serializeLoadout()); document.getElementById('cloud-code-display').classList.remove('hidden'); document.getElementById('generated-code').innerText = code; } catch (e) { alert("Failed to save."); } finally { btn.innerText = "Save to Cloud"; btn.disabled = false; } }
+async function loadFromCloud() { if (!dbFirestore) return; const codeInput = document.getElementById('input-cloud-code').value.toUpperCase().trim(); if (codeInput.length !== 6) return; const btn = document.getElementById('btn-cloud-load'); btn.innerText = "Loading..."; btn.disabled = true; try { const docSnap = await getDoc(doc(dbFirestore, "builds", codeInput)); if (docSnap.exists()) { deserializeLoadout(docSnap.data()); document.getElementById('load-modal').classList.add('hidden'); } else alert("Code not found!"); } catch (e) { alert("Failed to load."); } finally { btn.innerText = "Load Cloud"; btn.disabled = false; } }
 function downloadLocal() { const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(serializeLoadout())); const downloadAnchorNode = document.createElement('a'); downloadAnchorNode.setAttribute("href", dataStr); downloadAnchorNode.setAttribute("download", "pc_build.json"); document.body.appendChild(downloadAnchorNode); downloadAnchorNode.click(); downloadAnchorNode.remove(); }
-function uploadLocal(event) { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = function(e) { try { deserializeLoadout(JSON.parse(e.target.result)); } catch(err) { alert("Invalid JSON file."); } }; reader.readAsText(file); event.target.value = ''; }
+function uploadLocal(event) { const file = event.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = function(e) { try { deserializeLoadout(JSON.parse(e.target.result)); document.getElementById('load-modal').classList.add('hidden'); } catch(err) { alert("Invalid JSON file."); } }; reader.readAsText(file); event.target.value = ''; }
 
 document.addEventListener('DOMContentLoaded', init);
