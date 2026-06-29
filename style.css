@@ -102,7 +102,7 @@ body { background-color: var(--bg-base); color: var(--text-main); font-family: v
 
 .drawer-list-content { flex: 1; overflow-y: auto; padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 8px; align-items: stretch;}
 
-/* --- FIX GEPENG PADA KARTU ITEM --- */
+/* --- NEW CARD STYLES --- */
 .fade-wrapper { transition: opacity 0.15s ease-in-out; opacity: 1; }
 .fade-wrapper.fade-out { opacity: 0; }
 
@@ -114,8 +114,8 @@ body { background-color: var(--bg-base); color: var(--text-main); font-family: v
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    flex-shrink: 0; /* Mencegah kartu tergencet vertikal */
-    min-height: min-content; /* Pastikan tinggi sesuai dengan isinya */
+    flex-shrink: 0;
+    min-height: min-content; 
 }
 .item-card-wrap:hover { border-color: var(--border-hover); transform: translateY(-1px); }
 .item-card-wrap.equipped-card { border-color: var(--accent-blue); background: rgba(10, 132, 255, 0.05); }
@@ -260,6 +260,27 @@ body { background-color: var(--bg-base); color: var(--text-main); font-family: v
 .slot-empty { color: var(--text-muted); font-size: 0.95rem; font-style: italic; }
 .blueprint-price { font-size: 0.85rem; font-weight: 700; color: var(--accent-green); margin-right: 15px; white-space: nowrap; }
 .slot-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* TOMBOL HAPUS BARU (ICON TRASH) */
+.btn-remove-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 59, 48, 0.1);
+    color: var(--accent-red);
+    border: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    flex-shrink: 0;
+}
+.btn-remove-icon:hover {
+    background: var(--accent-red);
+    color: white;
+    transform: scale(1.05);
+}
 
 /* Alerts and Modals */
 .incompatible-item { background: rgba(255, 59, 48, 0.1) !important; border: 1px solid var(--accent-red) !important; }
