@@ -784,8 +784,8 @@ function updateMetrics() {
         
         ram.forEach(r => {
             totalUsd += r.priceUsd;
-            sysWattage += (r.watt || 0);
-            totalRamPerf += r.perf;
+            sysWattage += (r.watt || 5);
+            totalRamPerf += (r.perf || 50);
             if(r.type) types.add(r.type);
             const match = r.name.match(/(\d+)MHz/i);
             if(match) speeds.add(match[1]);
@@ -833,7 +833,7 @@ function updateMetrics() {
 
     if (cpu && gpu && ram.length > 0) {
         let ramBonus = (ram.length >= 2) ? 1.0 : 0.85;
-        let cpuP = cpu.perf * ocPerfMult; let gpuP = gpu.perf * ocPerfMult;
+        let cpuP = (cpu.perf || 50) * ocPerfMult; let gpuP = (gpu.perf || 70) * ocPerfMult;
         gameScore = Math.round(((gpuP * 0.65) + (cpuP * 0.30) + ((avgRamPerf * ramBonus) * 0.05)) * 10);
         if (gameScore > 1000) gameScore = 1000;
     }
@@ -842,7 +842,7 @@ function updateMetrics() {
     const bReadout = document.getElementById('bottleneck-readout');
     if (bStatus && bReadout) {
         if (cpu && gpu) {
-            const cpuP = cpu.perf * ocPerfMult; const gpuP = gpu.perf * ocPerfMult;
+            const cpuP = (cpu.perf || 50) * ocPerfMult; const gpuP = (gpu.perf || 70) * ocPerfMult;
             if (gpuP > cpuP * 1.3) { bReadout.innerText = tStatus("Severe CPU Limit"); bStatus.innerText = tStatus("GPU Starved"); updateDot('bottleneck-dot', 'danger'); } 
             else if (gpuP > cpuP * 1.15) { bReadout.innerText = tStatus("CPU Limit"); bStatus.innerText = tStatus("GPU Waiting"); updateDot('bottleneck-dot', 'warn'); } 
             else if (cpuP > gpuP * 1.3) { bReadout.innerText = tStatus("GPU Limit"); bStatus.innerText = tStatus("CPU Overkill"); updateDot('bottleneck-dot', 'warn'); } 
@@ -855,8 +855,8 @@ function updateMetrics() {
     if(tStatusEl && tReadout) {
         let activeCooler = state.useStockCooler ? { tdp_max: 65 } : cooler;
         if (cpu && activeCooler) {
-            let currentCpuWatt = Math.round(cpu.watt * ocWattMult);
-            const headroom = activeCooler.tdp_max - currentCpuWatt;
+            let currentCpuWatt = Math.round((cpu.watt || 65) * ocWattMult);
+            const headroom = (activeCooler.tdp_max || 150) - currentCpuWatt;
             if (headroom < -10) { tReadout.innerText = `${headroom}${tStatus("W Deficit")}`; tStatusEl.innerText = tStatus("Thermal Throttling"); updateDot('thermal-dot', 'danger'); } 
             else if (headroom < 30) { tReadout.innerText = `${headroom}${tStatus("W Clearance")}`; tStatusEl.innerText = tStatus("Warm / Loud Fans"); updateDot('thermal-dot', 'warn'); } 
             else { tReadout.innerText = `+${headroom}${tStatus("W Headroom")}`; tStatusEl.innerText = tStatus("Excellent Cooling"); updateDot('thermal-dot', 'ok'); }
